@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Light mode: white background for splash/launcher icon -->
+    <color name="ic_launcher_background">#FFFFFFFF</color>
+    <!-- Light mode splash background used by Android OS SplashScreen API -->
+    <color name="splash_background">#FFFFFFFF</color>
+</resources>

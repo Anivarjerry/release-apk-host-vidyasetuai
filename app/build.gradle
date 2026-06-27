@@ -1,0 +1,138 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'com.google.gms.google-services'
+    id 'org.jetbrains.kotlin.plugin.serialization'
+    id 'kotlin-kapt'
+    id 'org.jetbrains.kotlin.plugin.compose'
+}
+
+android {
+    namespace 'com.vidyasetuai'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId "com.vidyasetuai"
+        minSdk 24
+        targetSdk 36
+        versionCode 7
+        versionName "1.7"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        vectorDrawables {
+            useSupportLibrary true
+        }
+
+        // Read from root .env
+        def envFile = rootProject.file(".env")
+        def supabaseUrl = ""
+        def supabaseAnonKey = ""
+        if (envFile.exists()) {
+            envFile.readLines().each { line ->
+                if (line.startsWith("NEXT_PUBLIC_SUPABASE_URL=")) {
+                    supabaseUrl = line.split("=")[1].trim()
+                } else if (line.startsWith("NEXT_PUBLIC_SUPABASE_ANON_KEY=")) {
+                    supabaseAnonKey = line.split("=")[1].trim()
+                }
+            }
+        }
+        buildConfigField "String", "SUPABASE_URL", "\"${supabaseUrl}\""
+        buildConfigField "String", "SUPABASE_ANON_KEY", "\"${supabaseAnonKey}\""
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.debug
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+    buildFeatures {
+        compose true
+        buildConfig true
+        mlModelBinding true
+    }
+
+    packagingOptions {
+        resources {
+            excludes += '/META-INF/{AL2.0,LGPL2.1}'
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.7.0'
+    implementation 'androidx.activity:activity-compose:1.8.2'
+    implementation platform('androidx.compose:compose-bom:2023.10.01')
+    implementation 'androidx.compose.ui:ui'
+    implementation 'androidx.compose.ui:ui-graphics'
+    implementation 'androidx.compose.ui:ui-tooling-preview'
+    implementation 'androidx.compose.material3:material3'
+    implementation 'androidx.navigation:navigation-compose:2.9.8'
+
+    implementation("com.composables:icons-lucide:1.1.0")
+
+    // Supabase
+    implementation "io.github.jan-tennert.supabase:postgrest-kt:3.0.1"
+    implementation "io.github.jan-tennert.supabase:auth-kt:3.0.1"
+    implementation "io.github.jan-tennert.supabase:realtime-kt:3.0.1"
+    
+    // Ktor (for Supabase HTTP transport)
+    implementation "io.ktor:ktor-client-okhttp:3.0.0"
+    
+    // Kotlinx Serialization
+    implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3"
+
+    // Firebase (BOM & Messaging)
+    implementation platform('com.google.firebase:firebase-bom:33.1.0')
+    implementation 'com.google.firebase:firebase-messaging-ktx'
+
+    // DataStore (Preferences)
+    implementation "androidx.datastore:datastore-preferences:1.1.1"
+
+    // WorkManager (Background Sync)
+    implementation "androidx.work:work-runtime-ktx:2.9.0"
+
+    // Security (EncryptedSharedPreferences)
+    implementation "androidx.security:security-crypto:1.1.0-alpha06"
+
+    // Room Database
+    implementation "androidx.room:room-runtime:2.7.0-alpha01"
+    implementation 'org.tensorflow:tensorflow-lite-metadata:0.2.0'
+    kapt "androidx.room:room-compiler:2.7.0-alpha01"
+    implementation "androidx.room:room-ktx:2.7.0-alpha01"
+
+    // Coil (Image Loading + Disk Cache — WhatsApp-style offline images)
+    implementation "io.coil-kt:coil-compose:2.6.0"
+
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+    androidTestImplementation platform('androidx.compose:compose-bom:2023.10.01')
+    androidTestImplementation 'androidx.compose.ui:ui-test-junit4'
+    debugImplementation 'androidx.compose.ui:ui-tooling'
+    debugImplementation 'androidx.compose.ui:ui-test-manifest'
+
+    // CameraX for Face Recognition
+    implementation 'androidx.camera:camera-camera2:1.3.1'
+    implementation 'androidx.camera:camera-lifecycle:1.3.1'
+    implementation 'androidx.camera:camera-view:1.3.1'
+
+    // ML Kit Face Detection (for face cropping and alignment)
+    implementation 'com.google.mlkit:face-detection:16.1.6'
+
+    // ML Kit Barcode Scanning (for QR code attendance scanning)
+    implementation 'com.google.mlkit:barcode-scanning:17.2.0'
+
+    // TensorFlow Lite for FaceNet model embeddings
+    implementation 'org.tensorflow:tensorflow-lite:2.14.0'
+    implementation 'org.tensorflow:tensorflow-lite-support:0.4.4'
+}

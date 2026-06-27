@@ -1,0 +1,3 @@
+package com.vidyasetuai.feature_notifications.presentation.event
+
+interface NotificationEvent

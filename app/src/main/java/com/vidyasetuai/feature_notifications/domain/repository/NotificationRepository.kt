@@ -1,0 +1,4 @@
+package com.vidyasetuai
+.feature_notifications.domain.repository
+
+interface NotificationRepository

@@ -1,0 +1,3 @@
+package com.vidyasetuai.feature_institution.data.mapper
+
+class InstitutionMapper

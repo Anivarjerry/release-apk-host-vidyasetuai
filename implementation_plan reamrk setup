@@ -1,0 +1,99 @@
+# Nullable Child Organization Support in Remarks
+
+Make the `organization_id` column in the `organization_remarks` table nullable. This allows parent-level staff (who manage multiple child organizations) to write general remarks (targeted at "Self" or not specific to a school) at the parent organization level without forcing dummy school data, while maintaining strict school-level checks for student remarks.
+
+## User Review Required
+
+> [!IMPORTANT]
+> This change involves modifying the Supabase database schema (`public.organization_remarks` table) and dropping/recreating the local database on the Android app (destructive migration version update).
+> 
+> Please run the provided SQL scripts in your Supabase SQL Editor to apply database changes.
+
+## Supabase Database Changes
+
+Run the following SQL commands in your Supabase SQL Editor:
+
+```sql
+-- 1. Drop the NOT NULL constraint on organization_id in organization_remarks
+ALTER TABLE public.organization_remarks ALTER COLUMN organization_id DROP NOT NULL;
+
+-- 2. Drop old auto-generated RLS policies on organization_remarks
+DROP POLICY IF EXISTS "Org Read Access" ON public.organization_remarks;
+DROP POLICY IF EXISTS "Org Write Access" ON public.organization_remarks;
+
+-- 3. Create updated Read RLS policy supporting null organization_id
+CREATE POLICY "Org Read Access" ON public.organization_remarks 
+FOR SELECT TO authenticated 
+USING (
+  (organization_id IS NOT NULL AND public.has_access_to_org(organization_id)) OR
+  (organization_id IS NULL AND public.has_access_to_parent_org(parent_organization_id))
+);
+
+-- 4. Create updated Write RLS policy supporting null organization_id
+CREATE POLICY "Org Write Access" ON public.organization_remarks 
+FOR ALL TO authenticated 
+USING (
+  (organization_id IS NOT NULL AND public.has_write_access_to_org(organization_id)) OR
+  (organization_id IS NULL AND public.has_write_access_to_parent_org(parent_organization_id))
+)
+WITH CHECK (
+  (organization_id IS NOT NULL AND public.has_write_access_to_org(organization_id)) OR
+  (organization_id IS NULL AND public.has_write_access_to_parent_org(parent_organization_id))
+);
+```
+
+## Proposed Code Changes
+
+---
+
+### Android Local Database and Domain Models
+
+#### [MODIFY] [LocalStudentEntity.kt](file:///d:/VidyaSetu%20AI/vidyastu_mboile_app/app/src/main/java/com/vidyasetuai/feature_institution/data/local/entity/LocalStudentEntity.kt)
+* Add `organizationId: String? = null` to the `LocalStudentEntity` class.
+
+#### [MODIFY] [AppDatabase.kt](file:///d:/VidyaSetu%20AI/vidyastu_mboile_app/app/src/main/java/com/vidyasetuai/core/database/AppDatabase.kt)
+* Increment Room database version from `12` to `13` to trigger auto-destructive migration.
+
+---
+
+### Repository and Sync
+
+#### [MODIFY] [InstitutionRepository.kt](file:///d:/VidyaSetu%20AI/vidyastu_mboile_app/app/src/main/java/com/vidyasetuai/feature_institution/domain/repository/InstitutionRepository.kt)
+* Add a new declaration: `suspend fun getLocalStudentById(studentId: String): Result<LocalStudentEntity?>`
+
+#### [MODIFY] [InstitutionRepositoryImpl.kt](file:///d:/VidyaSetu%20AI/vidyastu_mboile_app/app/src/main/java/com/vidyasetuai/feature_institution/data/repository/InstitutionRepositoryImpl.kt)
+* Update `syncWorkspaceData` to store `organization_id` inside `LocalStudentEntity`:
+  ```kotlin
+  organizationId = studentJson["organization_id"]?.toString()?.replace("\"", "")
+  ```
+* Implement the new method:
+  ```kotlin
+  override suspend fun getLocalStudentById(studentId: String): Result<LocalStudentEntity?> = withContext(Dispatchers.IO) {
+      try {
+          Result.success(institutionDao.getStudentsByIds(listOf(studentId)).firstOrNull())
+      } catch (e: Exception) {
+          Result.failure(e)
+      }
+  }
+  ```
+
+---
+
+### Presentation Layer / ViewModel
+
+#### [MODIFY] [InstitutionViewModel.kt](file:///d:/VidyaSetu%20AI/vidyastu_mboile_app/app/src/main/java/com/vidyasetuai/feature_institution/presentation/viewmodel/InstitutionViewModel.kt)
+* Modify the `submitRemark` function:
+  * When `event.targetType == "Student"`, lookup the target student from the repository to retrieve their `organizationId`.
+  * When `event.targetType == "Self"`, set `organizationId = null` (as they are staff operating at the parent level, not tied to any single school).
+  * Update the constructed `Remark` and `RemarkTarget` objects to use this resolved `organizationId`.
+
+## Verification Plan
+
+### Automated Tests
+* Recompile the Android app using `./gradlew assembleDebug` to verify compilation and generated Room schemas.
+
+### Manual Verification
+1. Run the database changes in Supabase SQL editor.
+2. Launch the mobile app and log in as a Staff member (e.g. Teacher/Admin).
+3. Create a Remark targeting "Self" (General observation). Verify in Supabase that `organization_id` is saved as `NULL` and does not violate RLS or foreign key constraints.
+4. Create a Remark targeting a Student. Verify that `organization_id` is successfully resolved to the student's child school ID and saved.

@@ -1,0 +1,3 @@
+package com.vidyasetuai.feature_institution.domain.usecase
+
+class GetInstitutionDetailsUseCase

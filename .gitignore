@@ -1,0 +1,29 @@
+# Gradle files
+.gradle/
+.gradle_home/
+/build/
+/*/build/
+
+# Local configuration files
+local.properties
+.env
+.env.*
+
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iml
+.navigation/
+captures/
+
+# Built outputs
+*.apk
+*.aar
+*.ap_
+*.aab
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# JVM / Crash logs
+*.hprof

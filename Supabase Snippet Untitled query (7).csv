@@ -1,0 +1,832 @@
+table_name,column_name,data_type,is_nullable,column_default
+global_attendance_status,id,uuid,NO,gen_random_uuid()
+global_attendance_status,name,text,NO,null
+global_attendance_status,code,text,NO,null
+global_attendance_status,is_active,boolean,NO,true
+global_attendance_status,created_at,timestamp with time zone,NO,now()
+global_attendance_status,updated_at,timestamp with time zone,NO,now()
+global_blood_groups,id,uuid,NO,gen_random_uuid()
+global_blood_groups,name,text,NO,null
+global_blood_groups,is_active,boolean,NO,true
+global_blood_groups,created_at,timestamp with time zone,NO,now()
+global_blood_groups,updated_at,timestamp with time zone,NO,now()
+global_boards,id,uuid,NO,gen_random_uuid()
+global_boards,name,text,NO,null
+global_boards,code,text,NO,null
+global_boards,description,text,YES,null
+global_boards,is_active,boolean,NO,true
+global_boards,created_at,timestamp with time zone,NO,now()
+global_boards,updated_at,timestamp with time zone,NO,now()
+global_boards,created_by,uuid,YES,null
+global_boards,updated_by,uuid,YES,null
+global_classes,id,uuid,NO,gen_random_uuid()
+global_classes,name,text,NO,null
+global_classes,code,text,NO,null
+global_classes,level_order,integer,NO,null
+global_classes,education_level,text,YES,null
+global_classes,is_active,boolean,NO,true
+global_classes,created_at,timestamp with time zone,NO,now()
+global_classes,updated_at,timestamp with time zone,NO,now()
+global_classes,created_by,uuid,YES,null
+global_classes,updated_by,uuid,YES,null
+global_classes,is_deleted,boolean,NO,false
+global_exam_subject_rules,id,uuid,NO,gen_random_uuid()
+global_exam_subject_rules,class_id,uuid,NO,null
+global_exam_subject_rules,subject_id,uuid,NO,null
+global_exam_subject_rules,exam_type_id,uuid,NO,null
+global_exam_subject_rules,default_max_marks,numeric,NO,100
+global_exam_subject_rules,default_passing_marks,numeric,NO,33
+global_exam_subject_rules,default_grading_system,jsonb,NO,"{""A"": 80, ""B"": 70, ""C"": 60, ""D"": 50, ""E"": 40, ""F"": 0, ""A+"": 90}"
+global_exam_subject_rules,is_active,boolean,NO,true
+global_exam_types,id,uuid,NO,gen_random_uuid()
+global_exam_types,name,text,NO,null
+global_exam_types,code,text,YES,null
+global_exam_types,description,text,YES,null
+global_exam_types,is_active,boolean,NO,true
+global_exam_types,created_at,timestamp with time zone,NO,now()
+global_exam_types,updated_at,timestamp with time zone,NO,now()
+global_exam_types,created_by,uuid,YES,null
+global_exam_types,updated_by,uuid,YES,null
+global_expense_types,id,uuid,NO,gen_random_uuid()
+global_expense_types,name,text,NO,null
+global_expense_types,code,text,YES,null
+global_expense_types,is_active,boolean,NO,true
+global_expense_types,created_at,timestamp with time zone,NO,now()
+global_expense_types,updated_at,timestamp with time zone,NO,now()
+global_expense_types,reference_type,USER-DEFINED,YES,null
+global_facilities,id,uuid,NO,gen_random_uuid()
+global_facilities,name,text,NO,null
+global_facilities,code,text,NO,null
+global_facilities,description,text,YES,null
+global_facilities,is_active,boolean,NO,true
+global_facilities,created_at,timestamp with time zone,NO,now()
+global_facilities,updated_at,timestamp with time zone,NO,now()
+global_languages,id,uuid,NO,gen_random_uuid()
+global_languages,name,text,NO,null
+global_languages,code,text,NO,null
+global_languages,is_active,boolean,NO,true
+global_languages,created_at,timestamp with time zone,NO,now()
+global_languages,updated_at,timestamp with time zone,NO,now()
+global_mediums,id,uuid,NO,gen_random_uuid()
+global_mediums,board_id,uuid,NO,null
+global_mediums,name,text,NO,null
+global_mediums,code,text,NO,null
+global_mediums,is_active,boolean,NO,true
+global_mediums,created_at,timestamp with time zone,NO,now()
+global_mediums,updated_at,timestamp with time zone,NO,now()
+global_mediums,created_by,uuid,YES,null
+global_mediums,updated_by,uuid,YES,null
+global_organization_parent_types,id,uuid,NO,gen_random_uuid()
+global_organization_parent_types,name,text,NO,null
+global_organization_parent_types,code,text,NO,null
+global_organization_parent_types,description,text,YES,null
+global_organization_parent_types,is_active,boolean,NO,true
+global_organization_parent_types,created_at,timestamp with time zone,NO,now()
+global_organization_parent_types,updated_at,timestamp with time zone,NO,now()
+global_organization_types,id,uuid,NO,gen_random_uuid()
+global_organization_types,name,text,NO,null
+global_organization_types,code,text,NO,null
+global_organization_types,description,text,YES,null
+global_organization_types,is_active,boolean,NO,true
+global_organization_types,created_at,timestamp with time zone,NO,now()
+global_organization_types,updated_at,timestamp with time zone,NO,now()
+global_organization_types,is_own,boolean,NO,true
+global_relationship_types,id,uuid,NO,gen_random_uuid()
+global_relationship_types,name,text,NO,null
+global_relationship_types,code,text,NO,null
+global_relationship_types,is_active,boolean,NO,true
+global_relationship_types,created_at,timestamp with time zone,NO,now()
+global_relationship_types,updated_at,timestamp with time zone,NO,now()
+global_result_status,id,uuid,NO,gen_random_uuid()
+global_result_status,name,text,NO,null
+global_result_status,code,text,NO,null
+global_result_status,is_active,boolean,NO,true
+global_result_status,created_at,timestamp with time zone,NO,now()
+global_result_status,updated_at,timestamp with time zone,NO,now()
+global_sessions,id,uuid,NO,gen_random_uuid()
+global_sessions,name,text,NO,null
+global_sessions,is_active,boolean,NO,true
+global_sessions,is_deleted,boolean,NO,false
+global_sessions,created_at,timestamp with time zone,NO,now()
+global_sessions,updated_at,timestamp with time zone,NO,now()
+global_sessions,starting_date,date,YES,null
+global_sessions,ending_date,date,YES,null
+global_sessions,update_before_ending_days,integer,YES,30
+global_staff_roles,id,uuid,NO,gen_random_uuid()
+global_staff_roles,name,text,NO,null
+global_staff_roles,code,text,NO,null
+global_staff_roles,description,text,YES,null
+global_staff_roles,is_active,boolean,NO,true
+global_staff_roles,created_at,timestamp with time zone,NO,now()
+global_staff_roles,updated_at,timestamp with time zone,NO,now()
+global_staff_roles,is_deleted,boolean,NO,false
+global_student_categories,id,uuid,NO,gen_random_uuid()
+global_student_categories,name,text,NO,null
+global_student_categories,code,text,NO,null
+global_student_categories,description,text,YES,null
+global_student_categories,is_active,boolean,NO,true
+global_student_categories,created_at,timestamp with time zone,NO,now()
+global_student_categories,updated_at,timestamp with time zone,NO,now()
+global_student_status,id,uuid,NO,gen_random_uuid()
+global_student_status,name,text,NO,null
+global_student_status,code,text,NO,null
+global_student_status,is_active,boolean,NO,true
+global_student_status,created_at,timestamp with time zone,NO,now()
+global_student_status,updated_at,timestamp with time zone,NO,now()
+global_subjects,id,uuid,NO,gen_random_uuid()
+global_subjects,name,text,NO,null
+global_subjects,code,text,YES,null
+global_subjects,subject_type,text,YES,null
+global_subjects,is_active,boolean,NO,true
+global_subjects,created_at,timestamp with time zone,NO,now()
+global_subjects,updated_at,timestamp with time zone,NO,now()
+global_subjects,created_by,uuid,YES,null
+global_subjects,updated_by,uuid,YES,null
+organization_attendance_status,id,uuid,NO,gen_random_uuid()
+organization_attendance_status,organization_id,uuid,NO,null
+organization_attendance_status,attendance_status_id,uuid,NO,null
+organization_attendance_status,salary_payout_percentage,numeric,NO,100.0
+organization_attendance_status,is_active,boolean,NO,true
+organization_attendance_status,created_at,timestamp with time zone,NO,now()
+organization_boards,id,uuid,NO,gen_random_uuid()
+organization_boards,organization_id,uuid,NO,null
+organization_boards,board_id,uuid,NO,null
+organization_boards,is_active,boolean,NO,true
+organization_boards,created_at,timestamp with time zone,NO,now()
+organization_boards,is_deleted,boolean,NO,false
+organization_boards,updated_at,timestamp with time zone,NO,now()
+organization_boards,created_by,uuid,YES,null
+organization_boards,updated_by,uuid,YES,null
+organization_bus_child_assignments,id,uuid,NO,gen_random_uuid()
+organization_bus_child_assignments,parent_organization_id,uuid,NO,null
+organization_bus_child_assignments,organization_id,uuid,NO,null
+organization_bus_child_assignments,active_session_id,uuid,NO,null
+organization_bus_child_assignments,bus_id,uuid,NO,null
+organization_bus_child_assignments,is_active,boolean,NO,true
+organization_bus_child_assignments,is_deleted,boolean,NO,false
+organization_bus_child_assignments,created_at,timestamp with time zone,NO,now()
+organization_bus_child_assignments,updated_at,timestamp with time zone,NO,now()
+organization_bus_child_assignments,created_by,uuid,YES,null
+organization_bus_child_assignments,updated_by,uuid,YES,null
+organization_classes,id,uuid,NO,gen_random_uuid()
+organization_classes,organization_id,uuid,NO,null
+organization_classes,class_id,uuid,NO,null
+organization_classes,custom_class_name,text,YES,null
+organization_classes,next_promotion_class_id,uuid,YES,null
+organization_classes,is_active,boolean,NO,true
+organization_classes,created_at,timestamp with time zone,NO,now()
+organization_classes,is_deleted,boolean,NO,false
+organization_classes,updated_at,timestamp with time zone,NO,now()
+organization_classes,created_by,uuid,YES,null
+organization_classes,updated_by,uuid,YES,null
+organization_content_assignments,id,uuid,NO,gen_random_uuid()
+organization_content_assignments,content_id,uuid,NO,null
+organization_content_assignments,target_organization_id,uuid,NO,null
+organization_content_assignments,assigned_at,timestamp with time zone,NO,now()
+organization_contents,id,uuid,NO,gen_random_uuid()
+organization_contents,content_type,text,NO,null
+organization_contents,publisher_type,text,NO,null
+organization_contents,parent_organization_id,uuid,YES,null
+organization_contents,organization_id,uuid,YES,null
+organization_contents,session_id,uuid,NO,null
+organization_contents,title,text,YES,null
+organization_contents,description,text,YES,null
+organization_contents,image_url,text,YES,null
+organization_contents,target_scope,text,NO,self
+organization_contents,target_roles,ARRAY,NO,{}
+organization_contents,status,text,NO,published
+organization_contents,is_active,boolean,NO,true
+organization_contents,is_deleted,boolean,NO,false
+organization_contents,created_by,uuid,YES,null
+organization_contents,updated_by,uuid,YES,null
+organization_contents,created_at,timestamp with time zone,NO,now()
+organization_contents,updated_at,timestamp with time zone,NO,now()
+organization_exams,id,uuid,NO,gen_random_uuid()
+organization_exams,organization_id,uuid,NO,null
+organization_exams,active_session_id,uuid,NO,null
+organization_exams,exam_type_id,uuid,NO,null
+organization_exams,name,text,NO,null
+organization_exams,start_date,date,YES,null
+organization_exams,end_date,date,YES,null
+organization_exams,is_active,boolean,NO,true
+organization_exams,is_deleted,boolean,NO,false
+organization_exams,created_at,timestamp with time zone,NO,now()
+organization_fee_assignments,id,uuid,NO,gen_random_uuid()
+organization_fee_assignments,organization_id,uuid,NO,null
+organization_fee_assignments,session_id,uuid,NO,null
+organization_fee_assignments,organization_class_id,uuid,NO,null
+organization_fee_assignments,fee_head_id,uuid,NO,null
+organization_fee_assignments,amount,numeric,NO,0
+organization_fee_assignments,is_active,boolean,NO,true
+organization_fee_assignments,is_deleted,boolean,NO,false
+organization_fee_assignments,created_at,timestamp with time zone,NO,now()
+organization_fee_assignments,updated_at,timestamp with time zone,NO,now()
+organization_fee_assignments,created_by,uuid,YES,null
+organization_fee_assignments,updated_by,uuid,YES,null
+organization_guardian_user_links,id,uuid,NO,gen_random_uuid()
+organization_guardian_user_links,organization_id,uuid,NO,null
+organization_guardian_user_links,active_session_id,uuid,NO,null
+organization_guardian_user_links,guardian_id,uuid,NO,null
+organization_guardian_user_links,user_id,uuid,NO,null
+organization_guardian_user_links,is_approved,boolean,NO,false
+organization_guardian_user_links,approved_by,uuid,YES,null
+organization_guardian_user_links,approved_at,timestamp with time zone,YES,null
+organization_guardian_user_links,is_active,boolean,NO,true
+organization_guardian_user_links,is_deleted,boolean,NO,false
+organization_guardian_user_links,created_at,timestamp with time zone,NO,now()
+organization_guardian_user_links,updated_at,timestamp with time zone,NO,now()
+organization_guardians,id,uuid,NO,gen_random_uuid()
+organization_guardians,organization_id,uuid,NO,null
+organization_guardians,active_session_id,uuid,NO,null
+organization_guardians,name,text,NO,null
+organization_guardians,mobile_number,text,NO,null
+organization_guardians,relationship_type_id,uuid,NO,null
+organization_guardians,is_active,boolean,NO,true
+organization_guardians,is_deleted,boolean,NO,false
+organization_guardians,created_at,timestamp with time zone,NO,now()
+organization_guardians,updated_at,timestamp with time zone,NO,now()
+organization_guardians,created_by,uuid,YES,null
+organization_guardians,updated_by,uuid,YES,null
+organization_holidays,id,uuid,NO,gen_random_uuid()
+organization_holidays,parent_organization_id,uuid,NO,null
+organization_holidays,organization_id,uuid,NO,null
+organization_holidays,active_session_id,uuid,NO,null
+organization_holidays,name,text,NO,null
+organization_holidays,start_date,date,NO,null
+organization_holidays,end_date,date,NO,null
+organization_holidays,description,text,YES,null
+organization_holidays,is_active,boolean,NO,true
+organization_holidays,is_deleted,boolean,NO,false
+organization_holidays,created_at,timestamp with time zone,NO,now()
+organization_holidays,updated_at,timestamp with time zone,NO,now()
+organization_holidays,created_by,uuid,YES,null
+organization_holidays,updated_by,uuid,YES,null
+organization_languages,id,uuid,NO,gen_random_uuid()
+organization_languages,organization_id,uuid,NO,null
+organization_languages,language_id,uuid,NO,null
+organization_languages,is_active,boolean,NO,true
+organization_languages,created_at,timestamp with time zone,NO,now()
+organization_languages,is_deleted,boolean,NO,false
+organization_languages,updated_at,timestamp with time zone,NO,now()
+organization_languages,created_by,uuid,YES,null
+organization_languages,updated_by,uuid,YES,null
+organization_leaves,id,uuid,NO,gen_random_uuid()
+organization_leaves,parent_organization_id,uuid,NO,null
+organization_leaves,organization_id,uuid,YES,null
+organization_leaves,active_session_id,uuid,NO,null
+organization_leaves,applicant_type,text,NO,null
+organization_leaves,staff_id,uuid,YES,null
+organization_leaves,student_id,uuid,YES,null
+organization_leaves,leave_type,text,NO,null
+organization_leaves,start_date,date,NO,null
+organization_leaves,end_date,date,NO,null
+organization_leaves,is_half_day,boolean,NO,false
+organization_leaves,half_day_period,text,YES,null
+organization_leaves,reason,text,YES,null
+organization_leaves,status,text,NO,Pending
+organization_leaves,action_remarks,text,YES,null
+organization_leaves,action_by,uuid,YES,null
+organization_leaves,action_at,timestamp with time zone,YES,null
+organization_leaves,is_active,boolean,NO,true
+organization_leaves,is_deleted,boolean,NO,false
+organization_leaves,created_at,timestamp with time zone,NO,now()
+organization_leaves,updated_at,timestamp with time zone,NO,now()
+organization_leaves,created_by,uuid,YES,null
+organization_leaves,updated_by,uuid,YES,null
+organization_mediums,id,uuid,NO,gen_random_uuid()
+organization_mediums,organization_id,uuid,NO,null
+organization_mediums,medium_id,uuid,NO,null
+organization_mediums,is_active,boolean,NO,true
+organization_mediums,created_at,timestamp with time zone,NO,now()
+organization_mediums,is_deleted,boolean,NO,false
+organization_mediums,updated_at,timestamp with time zone,NO,now()
+organization_mediums,created_by,uuid,YES,null
+organization_mediums,updated_by,uuid,YES,null
+organization_parent_bus_staff_assignments,id,uuid,NO,gen_random_uuid()
+organization_parent_bus_staff_assignments,parent_organization_id,uuid,NO,null
+organization_parent_bus_staff_assignments,active_session_id,uuid,NO,null
+organization_parent_bus_staff_assignments,bus_id,uuid,NO,null
+organization_parent_bus_staff_assignments,staff_id,uuid,NO,null
+organization_parent_bus_staff_assignments,role,text,NO,null
+organization_parent_bus_staff_assignments,is_active,boolean,NO,true
+organization_parent_bus_staff_assignments,is_deleted,boolean,NO,false
+organization_parent_bus_staff_assignments,created_at,timestamp with time zone,NO,now()
+organization_parent_bus_staff_assignments,updated_at,timestamp with time zone,NO,now()
+organization_parent_bus_staff_assignments,created_by,uuid,YES,null
+organization_parent_bus_staff_assignments,updated_by,uuid,YES,null
+organization_parent_bus_trip_attendance_logs,id,uuid,NO,gen_random_uuid()
+organization_parent_bus_trip_attendance_logs,parent_organization_id,uuid,NO,null
+organization_parent_bus_trip_attendance_logs,organization_id,uuid,NO,null
+organization_parent_bus_trip_attendance_logs,active_session_id,uuid,NO,null
+organization_parent_bus_trip_attendance_logs,trip_id,uuid,NO,null
+organization_parent_bus_trip_attendance_logs,student_id,uuid,NO,null
+organization_parent_bus_trip_attendance_logs,status,text,NO,null
+organization_parent_bus_trip_attendance_logs,scan_latitude,double precision,YES,null
+organization_parent_bus_trip_attendance_logs,scan_longitude,double precision,YES,null
+organization_parent_bus_trip_attendance_logs,scanned_at,timestamp with time zone,NO,now()
+organization_parent_bus_trip_attendance_logs,scanned_by_staff_id,uuid,NO,null
+organization_parent_bus_trip_attendance_logs,sync_status,text,NO,Synced
+organization_parent_bus_trip_attendance_logs,is_active,boolean,NO,true
+organization_parent_bus_trip_attendance_logs,is_deleted,boolean,NO,false
+organization_parent_bus_trip_attendance_logs,created_at,timestamp with time zone,NO,now()
+organization_parent_bus_trip_attendance_logs,updated_at,timestamp with time zone,NO,now()
+organization_parent_bus_trip_attendance_logs,created_by,uuid,YES,null
+organization_parent_bus_trip_attendance_logs,updated_by,uuid,YES,null
+organization_parent_bus_trips,id,uuid,NO,gen_random_uuid()
+organization_parent_bus_trips,parent_organization_id,uuid,NO,null
+organization_parent_bus_trips,active_session_id,uuid,NO,null
+organization_parent_bus_trips,bus_id,uuid,NO,null
+organization_parent_bus_trips,driver_id,uuid,NO,null
+organization_parent_bus_trips,trip_type,text,NO,null
+organization_parent_bus_trips,status,text,NO,Scheduled
+organization_parent_bus_trips,start_time,timestamp with time zone,YES,null
+organization_parent_bus_trips,end_time,timestamp with time zone,YES,null
+organization_parent_bus_trips,is_active,boolean,NO,true
+organization_parent_bus_trips,is_deleted,boolean,NO,false
+organization_parent_bus_trips,created_at,timestamp with time zone,NO,now()
+organization_parent_bus_trips,updated_at,timestamp with time zone,NO,now()
+organization_parent_bus_trips,created_by,uuid,YES,null
+organization_parent_bus_trips,updated_by,uuid,YES,null
+organization_parent_buses,id,uuid,NO,gen_random_uuid()
+organization_parent_buses,parent_organization_id,uuid,NO,null
+organization_parent_buses,active_session_id,uuid,NO,null
+organization_parent_buses,bus_number,text,NO,null
+organization_parent_buses,bus_name,text,YES,null
+organization_parent_buses,route_name,text,YES,null
+organization_parent_buses,capacity,integer,YES,null
+organization_parent_buses,is_active,boolean,NO,true
+organization_parent_buses,is_deleted,boolean,NO,false
+organization_parent_buses,created_at,timestamp with time zone,NO,now()
+organization_parent_buses,updated_at,timestamp with time zone,NO,now()
+organization_parent_buses,created_by,uuid,YES,null
+organization_parent_buses,updated_by,uuid,YES,null
+organization_parent_expenses,id,uuid,NO,gen_random_uuid()
+organization_parent_expenses,parent_organization_id,uuid,NO,null
+organization_parent_expenses,active_session_id,uuid,NO,null
+organization_parent_expenses,expense_type_id,uuid,NO,null
+organization_parent_expenses,amount,numeric,NO,null
+organization_parent_expenses,expense_date,date,NO,null
+organization_parent_expenses,description,text,YES,null
+organization_parent_expenses,is_active,boolean,NO,true
+organization_parent_expenses,is_deleted,boolean,NO,false
+organization_parent_expenses,created_at,timestamp with time zone,NO,now()
+organization_parent_expenses,updated_at,timestamp with time zone,NO,now()
+organization_parent_expenses,created_by,uuid,YES,null
+organization_parent_expenses,updated_by,uuid,YES,null
+organization_parent_staff,id,uuid,NO,gen_random_uuid()
+organization_parent_staff,parent_organization_id,uuid,NO,null
+organization_parent_staff,active_session_id,uuid,NO,null
+organization_parent_staff,name,text,NO,null
+organization_parent_staff,email,text,YES,null
+organization_parent_staff,mobile_number,text,YES,null
+organization_parent_staff,role_id,uuid,YES,null
+organization_parent_staff,is_active,boolean,NO,true
+organization_parent_staff,is_deleted,boolean,NO,false
+organization_parent_staff,created_at,timestamp with time zone,NO,now()
+organization_parent_staff,updated_at,timestamp with time zone,NO,now()
+organization_parent_staff,created_by,uuid,YES,null
+organization_parent_staff,updated_by,uuid,YES,null
+organization_parent_staff_attendance,id,uuid,NO,gen_random_uuid()
+organization_parent_staff_attendance,parent_organization_id,uuid,NO,null
+organization_parent_staff_attendance,active_session_id,uuid,NO,null
+organization_parent_staff_attendance,staff_id,uuid,NO,null
+organization_parent_staff_attendance,attendance_date,date,NO,null
+organization_parent_staff_attendance,status,text,NO,null
+organization_parent_staff_attendance,remarks,text,YES,null
+organization_parent_staff_attendance,is_active,boolean,NO,true
+organization_parent_staff_attendance,is_deleted,boolean,NO,false
+organization_parent_staff_attendance,created_at,timestamp with time zone,NO,now()
+organization_parent_staff_attendance,updated_at,timestamp with time zone,NO,now()
+organization_parent_staff_attendance,created_by,uuid,YES,null
+organization_parent_staff_attendance,updated_by,uuid,YES,null
+organization_parent_staff_bus_enrollments,id,uuid,NO,gen_random_uuid()
+organization_parent_staff_bus_enrollments,parent_organization_id,uuid,NO,null
+organization_parent_staff_bus_enrollments,active_session_id,uuid,NO,null
+organization_parent_staff_bus_enrollments,staff_id,uuid,NO,null
+organization_parent_staff_bus_enrollments,bus_id,uuid,NO,null
+organization_parent_staff_bus_enrollments,is_active,boolean,NO,true
+organization_parent_staff_bus_enrollments,is_deleted,boolean,NO,false
+organization_parent_staff_bus_enrollments,created_at,timestamp with time zone,NO,now()
+organization_parent_staff_bus_enrollments,updated_at,timestamp with time zone,NO,now()
+organization_parent_staff_bus_fares,id,uuid,NO,gen_random_uuid()
+organization_parent_staff_bus_fares,parent_organization_id,uuid,NO,null
+organization_parent_staff_bus_fares,active_session_id,uuid,NO,null
+organization_parent_staff_bus_fares,staff_id,uuid,NO,null
+organization_parent_staff_bus_fares,bus_id,uuid,NO,null
+organization_parent_staff_bus_fares,fare_amount,numeric,NO,null
+organization_parent_staff_bus_fares,is_active,boolean,NO,true
+organization_parent_staff_bus_fares,is_deleted,boolean,NO,false
+organization_parent_staff_bus_fares,created_at,timestamp with time zone,NO,now()
+organization_parent_staff_bus_fares,updated_at,timestamp with time zone,NO,now()
+organization_parent_staff_leave_quotas,id,uuid,NO,gen_random_uuid()
+organization_parent_staff_leave_quotas,parent_organization_id,uuid,NO,null
+organization_parent_staff_leave_quotas,active_session_id,uuid,NO,null
+organization_parent_staff_leave_quotas,staff_id,uuid,NO,null
+organization_parent_staff_leave_quotas,leave_type,text,NO,null
+organization_parent_staff_leave_quotas,total_leaves,numeric,NO,null
+organization_parent_staff_leave_quotas,is_active,boolean,NO,true
+organization_parent_staff_leave_quotas,is_deleted,boolean,NO,false
+organization_parent_staff_leave_quotas,created_at,timestamp with time zone,NO,now()
+organization_parent_staff_leave_quotas,updated_at,timestamp with time zone,NO,now()
+organization_parent_staff_salaries,id,uuid,NO,gen_random_uuid()
+organization_parent_staff_salaries,parent_organization_id,uuid,NO,null
+organization_parent_staff_salaries,active_session_id,uuid,NO,null
+organization_parent_staff_salaries,staff_id,uuid,NO,null
+organization_parent_staff_salaries,user_id,uuid,YES,null
+organization_parent_staff_salaries,monthly_salary,numeric,NO,null
+organization_parent_staff_salaries,is_active,boolean,NO,true
+organization_parent_staff_salaries,is_deleted,boolean,NO,false
+organization_parent_staff_salaries,created_at,timestamp with time zone,NO,now()
+organization_parent_staff_salaries,updated_at,timestamp with time zone,NO,now()
+organization_parent_staff_salary_payments,id,uuid,NO,gen_random_uuid()
+organization_parent_staff_salary_payments,parent_organization_id,uuid,NO,null
+organization_parent_staff_salary_payments,active_session_id,uuid,NO,null
+organization_parent_staff_salary_payments,staff_id,uuid,NO,null
+organization_parent_staff_salary_payments,staff_user_id,uuid,YES,null
+organization_parent_staff_salary_payments,payment_date,date,NO,null
+organization_parent_staff_salary_payments,amount_paid,numeric,NO,null
+organization_parent_staff_salary_payments,payment_mode,text,NO,null
+organization_parent_staff_salary_payments,online_transaction_id,text,YES,null
+organization_parent_staff_salary_payments,online_payment_app,text,YES,null
+organization_parent_staff_salary_payments,remarks,text,YES,null
+organization_parent_staff_salary_payments,is_active,boolean,NO,true
+organization_parent_staff_salary_payments,is_deleted,boolean,NO,false
+organization_parent_staff_salary_payments,created_at,timestamp with time zone,NO,now()
+organization_parent_staff_salary_payments,updated_at,timestamp with time zone,NO,now()
+organization_parent_staff_salary_payouts,id,uuid,NO,gen_random_uuid()
+organization_parent_staff_salary_payouts,parent_organization_id,uuid,NO,null
+organization_parent_staff_salary_payouts,active_session_id,uuid,NO,null
+organization_parent_staff_salary_payouts,staff_id,uuid,NO,null
+organization_parent_staff_salary_payouts,month,text,NO,null
+organization_parent_staff_salary_payouts,year,integer,NO,null
+organization_parent_staff_salary_payouts,base_salary,numeric,NO,null
+organization_parent_staff_salary_payouts,days_present,integer,YES,null
+organization_parent_staff_salary_payouts,days_absent,integer,YES,null
+organization_parent_staff_salary_payouts,deduction_amount,numeric,YES,0
+organization_parent_staff_salary_payouts,net_payable,numeric,NO,null
+organization_parent_staff_salary_payouts,is_paid,boolean,NO,false
+organization_parent_staff_salary_payouts,is_active,boolean,NO,true
+organization_parent_staff_salary_payouts,is_deleted,boolean,NO,false
+organization_parent_staff_salary_payouts,created_at,timestamp with time zone,NO,now()
+organization_parent_staff_salary_payouts,updated_at,timestamp with time zone,NO,now()
+organization_parent_staff_user_links,id,uuid,NO,gen_random_uuid()
+organization_parent_staff_user_links,parent_organization_id,uuid,NO,null
+organization_parent_staff_user_links,active_session_id,uuid,NO,null
+organization_parent_staff_user_links,staff_id,uuid,NO,null
+organization_parent_staff_user_links,user_id,uuid,NO,null
+organization_parent_staff_user_links,is_approved,boolean,NO,false
+organization_parent_staff_user_links,approved_by,uuid,YES,null
+organization_parent_staff_user_links,approved_at,timestamp with time zone,YES,null
+organization_parent_staff_user_links,is_active,boolean,NO,true
+organization_parent_staff_user_links,is_deleted,boolean,NO,false
+organization_parent_staff_user_links,created_at,timestamp with time zone,NO,now()
+organization_parent_staff_user_links,updated_at,timestamp with time zone,NO,now()
+organization_parents,id,uuid,NO,gen_random_uuid()
+organization_parents,name,text,NO,null
+organization_parents,organization_type_id,uuid,YES,null
+organization_parents,board_id,uuid,YES,null
+organization_parents,medium_id,uuid,YES,null
+organization_parents,is_active,boolean,NO,true
+organization_parents,is_deleted,boolean,NO,false
+organization_parents,created_at,timestamp with time zone,NO,now()
+organization_parents,updated_at,timestamp with time zone,NO,now()
+organization_parents,created_by,uuid,YES,null
+organization_parents,updated_by,uuid,YES,null
+organization_parents_profiles,id,uuid,NO,gen_random_uuid()
+organization_parents_profiles,parent_organization_id,uuid,NO,null
+organization_parents_profiles,logo_url,text,YES,null
+organization_parents_profiles,website_url,text,YES,null
+organization_parents_profiles,email,text,YES,null
+organization_parents_profiles,mobile_number,text,YES,null
+organization_parents_profiles,address_line1,text,YES,null
+organization_parents_profiles,address_line2,text,YES,null
+organization_parents_profiles,city,text,YES,null
+organization_parents_profiles,state,text,YES,null
+organization_parents_profiles,pincode,text,YES,null
+organization_parents_profiles,is_active,boolean,NO,true
+organization_parents_profiles,created_at,timestamp with time zone,NO,now()
+organization_parents_profiles,updated_at,timestamp with time zone,NO,now()
+organization_parents_users,id,uuid,NO,gen_random_uuid()
+organization_parents_users,parent_organization_id,uuid,NO,null
+organization_parents_users,user_id,uuid,NO,null
+organization_parents_users,role,text,NO,null
+organization_parents_users,is_active,boolean,NO,true
+organization_parents_users,is_deleted,boolean,NO,false
+organization_parents_users,created_at,timestamp with time zone,NO,now()
+organization_parents_users,updated_at,timestamp with time zone,NO,now()
+organization_periods,id,uuid,NO,gen_random_uuid()
+organization_periods,organization_id,uuid,NO,null
+organization_periods,active_session_id,uuid,NO,null
+organization_periods,name,text,NO,null
+organization_periods,start_time,time without time zone,NO,null
+organization_periods,end_time,time without time zone,NO,null
+organization_periods,is_active,boolean,NO,true
+organization_periods,is_deleted,boolean,NO,false
+organization_periods,created_at,timestamp with time zone,NO,now()
+organization_periods,updated_at,timestamp with time zone,NO,now()
+organization_profiles,id,uuid,NO,gen_random_uuid()
+organization_profiles,organization_id,uuid,NO,null
+organization_profiles,logo_url,text,YES,null
+organization_profiles,website_url,text,YES,null
+organization_profiles,email,text,YES,null
+organization_profiles,mobile_number,text,YES,null
+organization_profiles,address_line1,text,YES,null
+organization_profiles,address_line2,text,YES,null
+organization_profiles,city,text,YES,null
+organization_profiles,state,text,YES,null
+organization_profiles,pincode,text,YES,null
+organization_profiles,is_active,boolean,NO,true
+organization_profiles,created_at,timestamp with time zone,NO,now()
+organization_profiles,updated_at,timestamp with time zone,NO,now()
+organization_remark_attachments,id,uuid,NO,gen_random_uuid()
+organization_remark_attachments,remark_id,uuid,NO,null
+organization_remark_attachments,file_url,text,NO,null
+organization_remark_attachments,file_type,text,YES,null
+organization_remark_attachments,is_active,boolean,NO,true
+organization_remark_attachments,is_deleted,boolean,NO,false
+organization_remark_attachments,created_at,timestamp with time zone,NO,now()
+organization_remark_history,id,uuid,NO,gen_random_uuid()
+organization_remark_history,remark_id,uuid,NO,null
+organization_remark_history,changed_by,uuid,NO,null
+organization_remark_history,change_type,text,NO,null
+organization_remark_history,old_content,text,YES,null
+organization_remark_history,new_content,text,YES,null
+organization_remark_history,created_at,timestamp with time zone,NO,now()
+organization_remark_targets,id,uuid,NO,gen_random_uuid()
+organization_remark_targets,parent_org_id,uuid,NO,null
+organization_remark_targets,organization_id,uuid,NO,null
+organization_remark_targets,active_session_id,uuid,NO,null
+organization_remark_targets,remark_id,uuid,NO,null
+organization_remark_targets,target_type,text,NO,null
+organization_remark_targets,target_student_id,uuid,YES,null
+organization_remark_targets,target_guardian_id,uuid,YES,null
+organization_remark_targets,target_staff_id,uuid,YES,null
+organization_remark_targets,target_user_id,uuid,YES,null
+organization_remark_targets,is_active,boolean,NO,true
+organization_remark_targets,is_deleted,boolean,NO,false
+organization_remark_targets,created_at,timestamp with time zone,NO,now()
+organization_remark_targets,updated_at,timestamp with time zone,NO,now()
+organization_remark_targets,created_by,uuid,YES,null
+organization_remark_targets,updated_by,uuid,YES,null
+organization_remark_targets,sync_status,text,NO,Synced
+organization_remarks,id,uuid,NO,gen_random_uuid()
+organization_remarks,parent_org_id,uuid,NO,null
+organization_remarks,organization_id,uuid,NO,null
+organization_remarks,active_session_id,uuid,NO,null
+organization_remarks,content,text,NO,null
+organization_remarks,category,text,NO,null
+organization_remarks,priority,text,NO,Normal
+organization_remarks,creator_user_id,uuid,NO,null
+organization_remarks,creator_workspace_role_id,uuid,YES,null
+organization_remarks,visibility_type,text,NO,public
+organization_remarks,visibility_audience,ARRAY,NO,{}
+organization_remarks,is_pinned,boolean,NO,false
+organization_remarks,pin_expires_at,timestamp with time zone,YES,null
+organization_remarks,expires_at,timestamp with time zone,YES,null
+organization_remarks,is_active,boolean,NO,true
+organization_remarks,is_deleted,boolean,NO,false
+organization_remarks,created_at,timestamp with time zone,NO,now()
+organization_remarks,updated_at,timestamp with time zone,NO,now()
+organization_remarks,created_by,uuid,YES,null
+organization_remarks,updated_by,uuid,YES,null
+organization_remarks,sync_status,text,NO,Synced
+organization_sections,id,uuid,NO,gen_random_uuid()
+organization_sections,organization_id,uuid,NO,null
+organization_sections,class_id,uuid,NO,null
+organization_sections,name,text,NO,null
+organization_sections,is_active,boolean,NO,true
+organization_sections,created_at,timestamp with time zone,NO,now()
+organization_sections,is_deleted,boolean,NO,false
+organization_sections,updated_at,timestamp with time zone,NO,now()
+organization_sections,created_by,uuid,YES,null
+organization_sections,updated_by,uuid,YES,null
+organization_session_classes,id,uuid,NO,gen_random_uuid()
+organization_session_classes,organization_id,uuid,NO,null
+organization_session_classes,active_session_id,uuid,NO,null
+organization_session_classes,organization_class_id,uuid,NO,null
+organization_session_classes,is_active,boolean,NO,true
+organization_session_classes,is_deleted,boolean,NO,false
+organization_session_classes,created_at,timestamp with time zone,NO,now()
+organization_session_classes,updated_at,timestamp with time zone,NO,now()
+organization_session_sections,id,uuid,NO,gen_random_uuid()
+organization_session_sections,organization_id,uuid,NO,null
+organization_session_sections,active_session_id,uuid,NO,null
+organization_session_sections,organization_class_id,uuid,NO,null
+organization_session_sections,organization_section_id,uuid,NO,null
+organization_session_sections,is_active,boolean,NO,true
+organization_session_sections,is_deleted,boolean,NO,false
+organization_session_sections,created_at,timestamp with time zone,NO,now()
+organization_session_sections,updated_at,timestamp with time zone,NO,now()
+organization_session_subjects,id,uuid,NO,gen_random_uuid()
+organization_session_subjects,organization_id,uuid,NO,null
+organization_session_subjects,active_session_id,uuid,NO,null
+organization_session_subjects,organization_class_id,uuid,NO,null
+organization_session_subjects,subject_id,uuid,NO,null
+organization_session_subjects,is_active,boolean,NO,true
+organization_session_subjects,is_deleted,boolean,NO,false
+organization_session_subjects,created_at,timestamp with time zone,NO,now()
+organization_session_subjects,updated_at,timestamp with time zone,NO,now()
+organization_student_additional_details,id,uuid,NO,gen_random_uuid()
+organization_student_additional_details,organization_id,uuid,NO,null
+organization_student_additional_details,student_id,uuid,NO,null
+organization_student_additional_details,blood_group_id,uuid,YES,null
+organization_student_additional_details,category_id,uuid,YES,null
+organization_student_additional_details,aadhar_number,text,YES,null
+organization_student_additional_details,date_of_birth,date,YES,null
+organization_student_additional_details,gender,text,YES,null
+organization_student_additional_details,address,text,YES,null
+organization_student_additional_details,is_active,boolean,NO,true
+organization_student_additional_details,is_deleted,boolean,NO,false
+organization_student_additional_details,created_at,timestamp with time zone,NO,now()
+organization_student_additional_details,updated_at,timestamp with time zone,NO,now()
+organization_student_additional_fees,id,uuid,NO,gen_random_uuid()
+organization_student_additional_fees,organization_id,uuid,NO,null
+organization_student_additional_fees,session_id,uuid,NO,null
+organization_student_additional_fees,student_id,uuid,NO,null
+organization_student_additional_fees,fee_head_id,uuid,NO,null
+organization_student_additional_fees,amount,numeric,NO,null
+organization_student_additional_fees,reason,text,YES,null
+organization_student_additional_fees,is_active,boolean,NO,true
+organization_student_additional_fees,is_deleted,boolean,NO,false
+organization_student_additional_fees,created_at,timestamp with time zone,NO,now()
+organization_student_additional_fees,updated_at,timestamp with time zone,NO,now()
+organization_student_attendance,id,uuid,NO,gen_random_uuid()
+organization_student_attendance,organization_id,uuid,NO,null
+organization_student_attendance,active_session_id,uuid,NO,null
+organization_student_attendance,student_id,uuid,NO,null
+organization_student_attendance,attendance_date,date,NO,null
+organization_student_attendance,status,text,NO,null
+organization_student_attendance,remarks,text,YES,null
+organization_student_attendance,marked_by_staff_id,uuid,YES,null
+organization_student_attendance,is_active,boolean,NO,true
+organization_student_attendance,is_deleted,boolean,NO,false
+organization_student_attendance,created_at,timestamp with time zone,NO,now()
+organization_student_attendance,updated_at,timestamp with time zone,NO,now()
+organization_student_bus_assignments,id,uuid,NO,gen_random_uuid()
+organization_student_bus_assignments,parent_organization_id,uuid,NO,null
+organization_student_bus_assignments,organization_id,uuid,NO,null
+organization_student_bus_assignments,active_session_id,uuid,NO,null
+organization_student_bus_assignments,student_id,uuid,NO,null
+organization_student_bus_assignments,bus_id,uuid,NO,null
+organization_student_bus_assignments,pickup_stop,text,YES,null
+organization_student_bus_assignments,is_active,boolean,NO,true
+organization_student_bus_assignments,is_deleted,boolean,NO,false
+organization_student_bus_assignments,created_at,timestamp with time zone,NO,now()
+organization_student_bus_assignments,updated_at,timestamp with time zone,NO,now()
+organization_student_enrollments,id,uuid,NO,gen_random_uuid()
+organization_student_enrollments,organization_id,uuid,NO,null
+organization_student_enrollments,active_session_id,uuid,NO,null
+organization_student_enrollments,student_id,uuid,NO,null
+organization_student_enrollments,organization_class_id,uuid,NO,null
+organization_student_enrollments,organization_section_id,uuid,YES,null
+organization_student_enrollments,roll_number,integer,YES,null
+organization_student_enrollments,sr_number,text,YES,null
+organization_student_enrollments,is_active,boolean,NO,true
+organization_student_enrollments,is_deleted,boolean,NO,false
+organization_student_enrollments,created_at,timestamp with time zone,NO,now()
+organization_student_enrollments,updated_at,timestamp with time zone,NO,now()
+organization_student_enrollments,created_by,uuid,YES,null
+organization_student_enrollments,updated_by,uuid,YES,null
+organization_student_exam_marks,id,uuid,NO,gen_random_uuid()
+organization_student_exam_marks,organization_id,uuid,NO,null
+organization_student_exam_marks,active_session_id,uuid,NO,null
+organization_student_exam_marks,exam_id,uuid,NO,null
+organization_student_exam_marks,student_id,uuid,NO,null
+organization_student_exam_marks,subject_id,uuid,NO,null
+organization_student_exam_marks,marks_obtained,numeric,YES,null
+organization_student_exam_marks,is_absent,boolean,NO,false
+organization_student_exam_marks,remarks,text,YES,null
+organization_student_exam_marks,is_active,boolean,NO,true
+organization_student_exam_marks,is_deleted,boolean,NO,false
+organization_student_exam_marks,created_at,timestamp with time zone,NO,now()
+organization_student_exam_marks,updated_at,timestamp with time zone,NO,now()
+organization_student_fee_payments,id,uuid,NO,gen_random_uuid()
+organization_student_fee_payments,organization_id,uuid,NO,null
+organization_student_fee_payments,session_id,uuid,NO,null
+organization_student_fee_payments,student_id,uuid,NO,null
+organization_student_fee_payments,receipt_number,text,NO,null
+organization_student_fee_payments,payment_mode,text,NO,null
+organization_student_fee_payments,payment_date,date,NO,null
+organization_student_fee_payments,amount_paid,numeric,NO,null
+organization_student_fee_payments,discount_amount,numeric,NO,0
+organization_student_fee_payments,fine_amount,numeric,NO,0
+organization_student_fee_payments,discount_reason,text,YES,null
+organization_student_fee_payments,remarks,text,YES,null
+organization_student_fee_payments,is_active,boolean,NO,true
+organization_student_fee_payments,is_deleted,boolean,NO,false
+organization_student_fee_payments,created_at,timestamp with time zone,NO,now()
+organization_student_fee_payments,updated_at,timestamp with time zone,NO,now()
+organization_student_homeworks,id,uuid,NO,gen_random_uuid()
+organization_student_homeworks,organization_id,uuid,NO,null
+organization_student_homeworks,active_session_id,uuid,NO,null
+organization_student_homeworks,student_id,uuid,NO,null
+organization_student_homeworks,subject_id,uuid,YES,null
+organization_student_homeworks,title,text,NO,null
+organization_student_homeworks,description,text,YES,null
+organization_student_homeworks,due_date,date,YES,null
+organization_student_homeworks,is_completed,boolean,NO,false
+organization_student_homeworks,is_active,boolean,NO,true
+organization_student_homeworks,is_deleted,boolean,NO,false
+organization_student_homeworks,created_at,timestamp with time zone,NO,now()
+organization_student_homeworks,updated_at,timestamp with time zone,NO,now()
+organization_student_id_cards,id,uuid,NO,gen_random_uuid()
+organization_student_id_cards,organization_id,uuid,NO,null
+organization_student_id_cards,active_session_id,uuid,NO,null
+organization_student_id_cards,student_id,uuid,NO,null
+organization_student_id_cards,qr_identity_id,uuid,NO,null
+organization_student_id_cards,card_number,text,NO,null
+organization_student_id_cards,status,text,NO,Pending_Print
+organization_student_id_cards,reason_for_reissue,text,YES,null
+organization_student_id_cards,is_active,boolean,NO,true
+organization_student_id_cards,is_deleted,boolean,NO,false
+organization_student_id_cards,created_at,timestamp with time zone,NO,now()
+organization_student_id_cards,updated_at,timestamp with time zone,NO,now()
+organization_student_id_cards,created_by,uuid,YES,null
+organization_student_id_cards,updated_by,uuid,YES,null
+organization_student_image_vectors,id,uuid,NO,gen_random_uuid()
+organization_student_image_vectors,organization_id,uuid,NO,null
+organization_student_image_vectors,student_id,uuid,NO,null
+organization_student_image_vectors,person_type,text,NO,null
+organization_student_image_vectors,face_vector,text,NO,null
+organization_student_image_vectors,image_url,text,NO,null
+organization_student_image_vectors,is_active,boolean,NO,true
+organization_student_image_vectors,is_deleted,boolean,NO,false
+organization_student_image_vectors,created_at,timestamp with time zone,NO,now()
+organization_student_image_vectors,updated_at,timestamp with time zone,NO,now()
+organization_student_marks,id,uuid,NO,gen_random_uuid()
+organization_student_marks,organization_id,uuid,NO,null
+organization_student_marks,active_session_id,uuid,NO,null
+organization_student_marks,student_id,uuid,NO,null
+organization_student_marks,subject_id,uuid,NO,null
+organization_student_marks,marks_obtained,numeric,YES,null
+organization_student_marks,max_marks,numeric,YES,null
+organization_student_marks,is_active,boolean,NO,true
+organization_student_marks,is_deleted,boolean,NO,false
+organization_student_marks,created_at,timestamp with time zone,NO,now()
+organization_student_marks,updated_at,timestamp with time zone,NO,now()
+organization_student_qr_identities,id,uuid,NO,gen_random_uuid()
+organization_student_qr_identities,organization_id,uuid,NO,null
+organization_student_qr_identities,active_session_id,uuid,NO,null
+organization_student_qr_identities,student_id,uuid,NO,null
+organization_student_qr_identities,qr_token_hash,text,NO,null
+organization_student_qr_identities,version,integer,NO,1
+organization_student_qr_identities,status,text,NO,Active
+organization_student_qr_identities,expiry_date,date,YES,null
+organization_student_qr_identities,is_active,boolean,NO,true
+organization_student_qr_identities,is_deleted,boolean,NO,false
+organization_student_qr_identities,created_at,timestamp with time zone,NO,now()
+organization_student_qr_identities,updated_at,timestamp with time zone,NO,now()
+organization_student_qr_identities,created_by,uuid,YES,null
+organization_student_qr_identities,updated_by,uuid,YES,null
+organization_student_subjects,id,uuid,NO,gen_random_uuid()
+organization_student_subjects,organization_id,uuid,NO,null
+organization_student_subjects,active_session_id,uuid,NO,null
+organization_student_subjects,student_id,uuid,NO,null
+organization_student_subjects,subject_id,uuid,NO,null
+organization_student_subjects,is_active,boolean,NO,true
+organization_student_subjects,is_deleted,boolean,NO,false
+organization_student_subjects,created_at,timestamp with time zone,NO,now()
+organization_student_subjects,updated_at,timestamp with time zone,NO,now()
+organization_student_user_links,id,uuid,NO,gen_random_uuid()
+organization_student_user_links,organization_id,uuid,NO,null
+organization_student_user_links,active_session_id,uuid,NO,null
+organization_student_user_links,student_id,uuid,NO,null
+organization_student_user_links,user_id,uuid,NO,null
+organization_student_user_links,is_approved,boolean,NO,false
+organization_student_user_links,approved_by,uuid,YES,null
+organization_student_user_links,approved_at,timestamp with time zone,YES,null
+organization_student_user_links,is_active,boolean,NO,true
+organization_student_user_links,is_deleted,boolean,NO,false
+organization_student_user_links,created_at,timestamp with time zone,NO,now()
+organization_student_user_links,updated_at,timestamp with time zone,NO,now()
+organization_students,id,uuid,NO,gen_random_uuid()
+organization_students,organization_id,uuid,NO,null
+organization_students,active_session_id,uuid,NO,null
+organization_students,name,text,NO,null
+organization_students,image_url,text,YES,null
+organization_students,is_active,boolean,NO,true
+organization_students,is_deleted,boolean,NO,false
+organization_students,created_at,timestamp with time zone,NO,now()
+organization_students,updated_at,timestamp with time zone,NO,now()
+organization_students,created_by,uuid,YES,null
+organization_students,updated_by,uuid,YES,null
+organization_timetable_schedules,id,uuid,NO,gen_random_uuid()
+organization_timetable_schedules,organization_id,uuid,NO,null
+organization_timetable_schedules,active_session_id,uuid,NO,null
+organization_timetable_schedules,organization_section_id,uuid,NO,null
+organization_timetable_schedules,period_id,uuid,NO,null
+organization_timetable_schedules,subject_id,uuid,YES,null
+organization_timetable_schedules,staff_id,uuid,YES,null
+organization_timetable_schedules,day_of_week,integer,NO,null
+organization_timetable_schedules,is_active,boolean,NO,true
+organization_timetable_schedules,is_deleted,boolean,NO,false
+organization_timetable_schedules,created_at,timestamp with time zone,NO,now()
+organization_timetable_schedules,updated_at,timestamp with time zone,NO,now()
+organization_users,id,uuid,NO,gen_random_uuid()
+organization_users,organization_id,uuid,NO,null
+organization_users,user_id,uuid,NO,null
+organization_users,role,text,NO,null
+organization_users,is_active,boolean,NO,true
+organization_users,is_deleted,boolean,NO,false
+organization_users,created_at,timestamp with time zone,NO,now()
+organization_users,updated_at,timestamp with time zone,NO,now()

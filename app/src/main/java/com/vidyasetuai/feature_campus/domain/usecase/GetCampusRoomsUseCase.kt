@@ -1,0 +1,3 @@
+package com.vidyasetuai.feature_campus.domain.usecase
+
+class GetCampusRoomsUseCase

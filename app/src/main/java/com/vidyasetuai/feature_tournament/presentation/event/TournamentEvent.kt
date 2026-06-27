@@ -1,0 +1,3 @@
+package com.vidyasetuai.feature_tournament.presentation.event
+
+interface TournamentEvent

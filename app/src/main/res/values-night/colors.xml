@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark mode: deep dark background for splash/launcher icon -->
+    <color name="ic_launcher_background">#FF121212</color>
+    <!-- Dark mode splash background used by Android OS SplashScreen API -->
+    <color name="splash_background">#FF121212</color>
+</resources>

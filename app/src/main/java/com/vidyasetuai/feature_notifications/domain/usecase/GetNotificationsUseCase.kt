@@ -1,0 +1,4 @@
+package com.vidyasetuai
+.feature_notifications.domain.usecase
+
+class GetNotificationsUseCase

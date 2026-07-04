@@ -1,30 +1,6 @@
 package com.vidyasetuai.feature_institution.domain.repository
 
-import com.vidyasetuai.feature_institution.domain.model.ConnectionState
-import com.vidyasetuai.feature_institution.domain.model.Workspace
-import com.vidyasetuai.feature_institution.domain.model.Leave
-import com.vidyasetuai.feature_institution.domain.model.FeePayment
-import com.vidyasetuai.feature_institution.domain.model.InstitutionStudent
-import com.vidyasetuai.feature_institution.domain.model.StudentAttendance
-import com.vidyasetuai.feature_institution.domain.model.StudentBusAssignment
-import com.vidyasetuai.feature_institution.domain.model.BusLiveLocation
-import com.vidyasetuai.feature_institution.domain.model.PendingApproval
-import com.vidyasetuai.feature_institution.domain.model.DriverBusDetails
-import com.vidyasetuai.feature_institution.domain.model.ChildOrg
-import com.vidyasetuai.feature_institution.domain.model.OrgClass
-import com.vidyasetuai.feature_institution.domain.model.OrgSection
-import com.vidyasetuai.feature_institution.domain.model.StudentAttendanceInfo
-import com.vidyasetuai.feature_institution.domain.model.AssignedSection
-import com.vidyasetuai.feature_institution.domain.model.StaffSalaryDetails
-import com.vidyasetuai.feature_institution.domain.model.ContentFeedItem
-import com.vidyasetuai.feature_institution.domain.model.StudentSearchResult
-import com.vidyasetuai.feature_institution.domain.model.ParentBusTrip
-import com.vidyasetuai.feature_institution.domain.model.ParentBusTripAttendanceLog
-import com.vidyasetuai.feature_institution.domain.model.Remark
-import com.vidyasetuai.feature_institution.domain.model.RemarkTarget
-import com.vidyasetuai.feature_institution.domain.model.GlobalStaffRole
-import com.vidyasetuai.feature_institution.domain.model.StudentHomeLocation
-
+import com.vidyasetuai.feature_institution.domain.model.*
 
 interface InstitutionRepository {
     suspend fun checkConnectionStatus(userId: String): Result<ConnectionState>
@@ -32,11 +8,11 @@ interface InstitutionRepository {
     
     // Multi-Workspace support
     suspend fun getWorkspaces(userId: String): Result<List<Workspace>>
+    suspend fun getCachedWorkspaces(): Result<List<Workspace>>
     suspend fun setActiveWorkspace(workspaceId: String): Result<Unit>
     suspend fun getGuardianStudents(guardianLinkId: String, forceRefresh: Boolean = false): Result<List<InstitutionStudent>>
     suspend fun getPendingApprovals(userId: String, forceRefresh: Boolean = false): Result<List<PendingApproval>>
     suspend fun approveSpecificConnection(linkId: String, tableName: String): Result<Unit>
-
     
     // Leave Management
     suspend fun submitLeave(
@@ -76,6 +52,8 @@ interface InstitutionRepository {
     suspend fun getStudentAttendance(studentIds: List<String>, forceRefresh: Boolean = false): Result<List<StudentAttendance>>
     suspend fun getStudentBusAssignments(studentIds: List<String>, forceRefresh: Boolean = false): Result<List<StudentBusAssignment>>
     suspend fun getBusLiveLocation(busId: String): Result<BusLiveLocation?>
+    suspend fun getBusRoute(busId: String, forceRefresh: Boolean = false): Result<List<BusRouteStop>>
+    suspend fun getParentBuses(parentOrgId: String, forceRefresh: Boolean = false): Result<List<com.vidyasetuai.feature_institution.data.local.entity.LocalParentBusEntity>>
     suspend fun getDriverBusDetails(workspaceId: String, forceRefresh: Boolean = false): Result<DriverBusDetails?>
 
     // Student Attendance Management
@@ -95,6 +73,8 @@ interface InstitutionRepository {
     suspend fun searchStudentsOffline(query: String, classFilterName: String?, sectionFilterName: String?): Result<List<StudentSearchResult>>
     suspend fun getLocalStudentById(studentId: String): Result<com.vidyasetuai.feature_institution.data.local.entity.LocalStudentEntity?>
     suspend fun getOfflineStaff(parentOrgId: String): Result<List<com.vidyasetuai.feature_institution.data.local.entity.LocalParentStaffEntity>>
+    suspend fun syncStudentAdditionalFees(studentId: String): Result<List<com.vidyasetuai.feature_institution.data.local.entity.LocalStudentAdditionalFeeEntity>>
+    suspend fun syncStudentProfileDetails(studentId: String): Result<com.vidyasetuai.feature_institution.data.local.entity.LocalStudentEntity?>
 
     // --- Driver Bus Trip & Attendance Sync Support ---
     suspend fun getActiveBusTrip(driverId: String): Result<ParentBusTrip?>
@@ -124,4 +104,16 @@ interface InstitutionRepository {
         userId: String
     ): Result<Unit>
     suspend fun getStudentLinkByUserId(userId: String): Result<com.vidyasetuai.feature_institution.data.local.entity.LocalStudentUserLinkEntity?>
+
+    // --- Calendar, Staff Attendance, and Exams Support ---
+    suspend fun getCalendarEvents(parentOrgId: String, sessionId: String, forceRefresh: Boolean = false): Result<List<CalendarEvent>>
+    suspend fun addCalendarEvent(event: CalendarEvent): Result<Unit>
+    
+    suspend fun getStaffAttendance(parentOrgId: String, date: String, forceRefresh: Boolean = false): Result<List<StaffAttendance>>
+    suspend fun submitStaffAttendance(attendanceList: List<StaffAttendance>): Result<Unit>
+    
+    suspend fun getOrganizationExams(orgId: String, sessionId: String, forceRefresh: Boolean = false): Result<List<OrganizationExam>>
+    suspend fun getExamSubjectSettings(orgId: String, sessionId: String, forceRefresh: Boolean = false): Result<List<ExamSubjectSetting>>
+    suspend fun getStudentExamMarks(examId: String, classId: String, subjectId: String, forceRefresh: Boolean = false): Result<List<StudentExamMark>>
+    suspend fun submitStudentExamMarks(marksList: List<StudentExamMark>): Result<Unit>
 }

@@ -16,6 +16,7 @@ import com.vidyasetuai.feature_institution.domain.model.StudentAttendanceInfo
 import com.vidyasetuai.feature_institution.domain.model.AssignedSection
 import com.vidyasetuai.feature_institution.domain.model.StaffSalaryPayment
 import com.vidyasetuai.feature_institution.domain.model.ContentFeedItem
+import com.vidyasetuai.feature_institution.domain.model.BusRouteStop
 import com.vidyasetuai.feature_institution.domain.model.StudentHomeLocation
 
 
@@ -39,7 +40,10 @@ data class InstitutionUiState(
     val notificationSubscribed: Boolean = false,
     val studentAttendance: List<StudentAttendance> = emptyList(),
     val studentBuses: List<StudentBusAssignment> = emptyList(),
+    val allBuses: List<com.vidyasetuai.feature_institution.data.local.entity.LocalParentBusEntity> = emptyList(),
     val activeBusLocation: BusLiveLocation? = null,
+    val activeBusRoutes: Map<String, List<BusRouteStop>> = emptyMap(), // busId -> route stops
+    val isTrackingActive: Boolean = false,
     val driverBusDetails: DriverBusDetails? = null,
     
     // Student Attendance Marking State

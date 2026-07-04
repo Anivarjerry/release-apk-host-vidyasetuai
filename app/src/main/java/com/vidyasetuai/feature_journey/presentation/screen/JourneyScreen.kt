@@ -42,6 +42,8 @@ fun JourneyScreen(
     viewModel: JourneyViewModel,
     currentLanguage: String,
     currentTheme: String,
+    isBrowsingTemplates: Boolean,
+    onBrowsingTemplatesChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -53,9 +55,6 @@ fun JourneyScreen(
         "light" -> false
         else -> isSystemDark
     }
-
-    // Local state to track whether the user is browsing templates to start a journey
-    var isBrowsingTemplates by rememberSaveable { mutableStateOf(false) }
 
     Box(
         modifier = modifier
@@ -73,7 +72,7 @@ fun JourneyScreen(
                 templates = uiState.templates,
                 isHindi = isHindi,
                 isDark = isDark,
-                onBack = { isBrowsingTemplates = false },
+                onBack = { onBrowsingTemplatesChange(false) },
                 onEnroll = { templateId, ownerType, time ->
                     viewModel.onEvent(
                         JourneyEvent.EnrollInJourney(
@@ -83,7 +82,7 @@ fun JourneyScreen(
                             notificationTime = time
                         )
                     )
-                    isBrowsingTemplates = false
+                    onBrowsingTemplatesChange(false)
                 }
             )
         } else if (uiState.activeJourney == null) {
@@ -91,7 +90,7 @@ fun JourneyScreen(
             WelcomeLandingScreen(
                 isHindi = isHindi,
                 isDark = isDark,
-                onStartClick = { isBrowsingTemplates = true }
+                onStartClick = { onBrowsingTemplatesChange(true) }
             )
         } else {
             // Screen 3: Active Journey Dashboard
@@ -99,7 +98,7 @@ fun JourneyScreen(
                 uiState = uiState,
                 isHindi = isHindi,
                 isDark = isDark,
-                onStartNewJourney = { isBrowsingTemplates = true },
+                onStartNewJourney = { onBrowsingTemplatesChange(true) },
                 onEvent = viewModel::onEvent
             )
         }

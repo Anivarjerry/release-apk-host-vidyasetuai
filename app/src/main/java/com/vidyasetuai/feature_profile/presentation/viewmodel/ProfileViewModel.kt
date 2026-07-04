@@ -90,6 +90,15 @@ class ProfileViewModel(
             is ProfileEvent.ResetUsernameCheck -> {
                 _uiState.update { it.copy(usernameUnique = null) }
             }
+            is ProfileEvent.SetUserUploadedLoading -> {
+                _uiState.update { it.copy(isUserUploadedLoading = event.isLoading) }
+            }
+            is ProfileEvent.UpdateUserCaseStudies -> {
+                _uiState.update { it.copy(userCaseStudies = event.list, isUserUploadedLoading = false) }
+            }
+            is ProfileEvent.UpdateUserExperiences -> {
+                _uiState.update { it.copy(userExperiences = event.list, isUserUploadedLoading = false) }
+            }
         }
     }
 

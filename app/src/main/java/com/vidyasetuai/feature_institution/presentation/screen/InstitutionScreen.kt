@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.composables.icons.lucide.*
+import com.vidyasetuai.feature_institution.presentation.screen.AllLogsScreen
 import com.vidyasetuai.core.ui.colors.AppColors
 import com.vidyasetuai.feature_institution.domain.model.ConnectionState
 import com.vidyasetuai.feature_institution.domain.model.Workspace
@@ -50,6 +51,9 @@ import com.vidyasetuai.feature_institution.presentation.screen.subscreens.Driver
 import com.vidyasetuai.feature_institution.presentation.screen.subscreens.DriverStudentAttendanceScreenHistory
 import com.vidyasetuai.feature_institution.presentation.screen.subscreens.RemarkShowScreen
 import com.vidyasetuai.feature_institution.presentation.screen.subscreens.RemarkAddScreen
+import com.vidyasetuai.feature_institution.presentation.screen.dashboards.*
+import com.vidyasetuai.feature_institution.presentation.component.DashboardFloatingActionButton
+import com.vidyasetuai.feature_institution.util.DashboardFabRules
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -70,6 +74,7 @@ import kotlinx.coroutines.delay
 import com.vidyasetuai.feature_profile.data.remote.dto.UserProfileDto
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Columns
+import coil.compose.AsyncImage
 
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
@@ -99,44 +104,45 @@ fun InstitutionEvent(
         .collectAsState(initial = null)
     var username by remember { mutableStateOf(userId) }
 
-    LaunchedEffect(profileState.value, userId) {
-        if (profileState.value != null && !profileState.value?.username.isNullOrEmpty()) {
-            username = profileState.value?.username!!
-        } else if (userId.isNotEmpty()) {
-            try {
-                val response = com.vidyasetuai.core.network.SupabaseClient.client.from("user_profiles")
-                    .select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("user_id, username")) {
-                        filter { eq("user_id", userId) }
-                    }.decodeSingleOrNull<UserProfileDto>()
-                if (response?.username != null) {
-                    username = response.username
-                    val existingProfile = db.userProfileDao().getProfile(userId)
-                    if (existingProfile == null) {
-                        db.userProfileDao().insertProfile(
-                            com.vidyasetuai.feature_profile.data.local.entity.UserProfileEntity(
-                                userId = userId,
-                                username = response.username,
-                                firstName = null,
-                                lastName = null,
-                                fullName = null,
-                                profilePictureUrl = null,
-                                coverPhotoUrl = null,
-                                bio = null,
-                                preferredLanguage = null,
-                                isVerified = false,
-                                gender = null,
-                                dateOfBirth = null
-                            )
-                        )
-                    } else if (existingProfile.username != response.username) {
-                        db.userProfileDao().insertProfile(
-                            existingProfile.copy(username = response.username)
-                        )
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("VidyaSetu_Auth", "Error fetching profile from Supabase", e)
+    LaunchedEffect(userId) {
+        if (userId.isEmpty()) return@LaunchedEffect
+        
+        // 1. Check local DB first to prevent redundant network requests
+        val cachedProfile = db.userProfileDao().getProfile(userId)
+        if (cachedProfile != null && !cachedProfile.username.isNullOrEmpty()) {
+            username = cachedProfile.username
+            return@LaunchedEffect
+        }
+        
+        // 2. Fetch from network only if missing locally
+        try {
+            val response = com.vidyasetuai.core.network.SupabaseClient.client.from("user_profiles")
+                .select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("user_id, username")) {
+                    filter { eq("user_id", userId) }
+                }.decodeSingleOrNull<UserProfileDto>()
+            if (response?.username != null) {
+                username = response.username
+                db.userProfileDao().insertProfile(
+                    com.vidyasetuai.feature_profile.data.local.entity.UserProfileEntity(
+                        userId = userId,
+                        username = response.username,
+                        firstName = null,
+                        lastName = null,
+                        fullName = null,
+                        profilePictureUrl = null,
+                        coverPhotoUrl = null,
+                        bio = null,
+                        preferredLanguage = null,
+                        isVerified = false,
+                        gender = null,
+                        dateOfBirth = null
+                    )
+                )
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e("VidyaSetu_Auth", "Error fetching profile from Supabase", e)
         }
     }
 
@@ -666,10 +672,42 @@ fun WorkspaceContainer(
                     }
                 }
 
+                // Quick Action Scrollable Icons Row
+                state.activeWorkspace?.let { active ->
+                    DashboardQuickActionsRow(
+                        role = active.role,
+                        isHindi = isHindi,
+                        onNavigateToStudents = {
+                            viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("student_directory"))
+                        },
+                        onNavigateToLeave = {
+                            viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("leave"))
+                        },
+                        onNavigateToRemarks = {
+                            viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show"))
+                        },
+                        onNavigateToFees = {
+                            viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("fees"))
+                        },
+                        onNavigateToFinance = {
+                            viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("salary_payouts"))
+                        },
+                        onNavigateToTransport = {
+                            viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("transport"))
+                        },
+                        onNavigateToNotices = {
+                            viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("notices"))
+                        },
+                        onNavigateToGallery = {
+                            viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("gallery"))
+                        }
+                    )
+                }
+
                 // Active Workspace Dashboard
                 Box(modifier = Modifier.weight(1f)) {
                     if (state.activeWorkspace != null) {
-                        when (state.activeWorkspace.role) {
+                         when (state.activeWorkspace.role) {
                             "Guardian" -> GuardianDashboard(
                                 state = state,
                                 isHindi = isHindi,
@@ -682,7 +720,8 @@ fun WorkspaceContainer(
                                 onNavigateToTransport = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("transport")) },
                                 onNavigateToFeed = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("content_feed")) },
                                 onNavigateToRemarks = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show")) },
-                                onNavigateToChildProfiles = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("child_profiles_list")) }
+                                onNavigateToChildProfiles = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("child_profiles_list")) },
+                                onNavigateToAllLogs = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("all_logs")) }
                             )
                             "Student" -> StudentDashboard(
                                 state = state,
@@ -693,7 +732,9 @@ fun WorkspaceContainer(
                                 onNavigateToLeave = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("leave")) },
                                 onNavigateToFeed = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("content_feed")) },
                                 onNavigateToRemarks = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show")) },
-                                onNavigateToSelfProfile = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("student_profile_detail")) }
+                                onNavigateToSelfProfile = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("student_profile_detail")) },
+                                onNavigateToTransport = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("transport")) },
+                                onNavigateToAllLogs = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("all_logs")) }
                             )
                             "Teacher" -> TeacherDashboard(
                                 state = state,
@@ -706,7 +747,8 @@ fun WorkspaceContainer(
                                 onNavigateToAttendanceHistory = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("teacher_attendance_history")) },
                                 onNavigateToSalary = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("salary_payouts")) },
                                 onNavigateToFeed = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("content_feed")) },
-                                onNavigateToRemarks = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show")) }
+                                onNavigateToRemarks = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show")) },
+                                onNavigateToAllLogs = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("all_logs")) }
                             )
                             "Driver" -> DriverDashboard(
                                 state = state,
@@ -721,7 +763,8 @@ fun WorkspaceContainer(
                                     viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("driver_student_attendance"))
                                     viewModel.onEvent(InstitutionEvent.LoadActiveTrip(userId))
                                 },
-                                onNavigateToRemarks = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show")) }
+                                onNavigateToRemarks = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show")) },
+                                onNavigateToAllLogs = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("all_logs")) }
                             )
                             "Admin", "System Administrator", "School Administrator", "Org Admin", "Principal", "Director", "Owner" -> AdminDashboard(
                                 state = state,
@@ -729,7 +772,9 @@ fun WorkspaceContainer(
                                 isDark = isDark,
                                 onNavigateToStudentDirectory = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("student_directory")) },
                                 onNavigateToFeed = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("content_feed")) },
-                                onNavigateToRemarks = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show")) }
+                                onNavigateToRemarks = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show")) },
+                                onNavigateToTransport = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("transport")) },
+                                onNavigateToAllLogs = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("all_logs")) }
                             )
                             else -> TeacherDashboard(
                                 state = state,
@@ -742,7 +787,8 @@ fun WorkspaceContainer(
                                 onNavigateToAttendanceHistory = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("teacher_attendance_history")) },
                                 onNavigateToSalary = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("salary_payouts")) },
                                 onNavigateToFeed = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("content_feed")) },
-                                onNavigateToRemarks = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show")) }
+                                onNavigateToRemarks = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show")) },
+                                onNavigateToAllLogs = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("all_logs")) }
                             )
                         }
                     } else {
@@ -881,6 +927,14 @@ fun WorkspaceContainer(
                             },
                             onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
                         )
+                        "set_home_location" -> StudentHomeLocationDetailSubScreen(
+                            state = state,
+                            isHindi = isHindi,
+                            isDark = isDark,
+                            viewModel = viewModel,
+                            userId = userId,
+                            onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
+                        )
                         "child_profile_detail" -> StudentHomeLocationDetailSubScreen(
                             state = state,
                             isHindi = isHindi,
@@ -911,6 +965,24 @@ fun WorkspaceContainer(
                             isDark = isDark,
                             viewModel = viewModel,
                             onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show")) }
+                        )
+                        "all_logs" -> AllLogsScreen(
+                            role = state.activeWorkspace?.role ?: "",
+                            isHindi = isHindi,
+                            isDark = isDark,
+                            onBackClick = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
+                        )
+                        "notices" -> NoticesSubScreen(
+                            state = state,
+                            isHindi = isHindi,
+                            isDark = isDark,
+                            onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
+                        )
+                        "gallery" -> GallerySubScreen(
+                            state = state,
+                            isHindi = isHindi,
+                            isDark = isDark,
+                            onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
                         )
                     }
                 }
@@ -1177,3 +1249,442 @@ fun ProfileDetailRow(
         }
     }
 }
+
+@Composable
+fun SalaryReceiptDialog(
+    payment: com.vidyasetuai.feature_institution.domain.model.StaffSalaryPayment,
+    isHindi: Boolean,
+    isDark: Boolean,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = if (isHindi) "बंद करें" else "Close", color = AppColors.EmeraldGreen)
+            }
+        },
+        title = {
+            Text(text = if (isHindi) "वेतन रसीद" else "Salary Receipt", fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column {
+                Text(text = "${if (isHindi) "राशि:" else "Amount:"} ₹${payment.amountPaid}")
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(text = "${if (isHindi) "दिनांक:" else "Date:"} ${payment.paymentDate}")
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(text = "${if (isHindi) "भुगतान माध्यम:" else "Mode:"} ${payment.paymentMode}")
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(text = "${if (isHindi) "ट्रांजैक्शन आईडी:" else "Transaction ID:"} ${payment.transactionId ?: ""}")
+            }
+        },
+        shape = RoundedCornerShape(16.dp)
+    )
+}
+
+@Composable
+fun DashboardQuickActionsRow(
+    role: String,
+    isHindi: Boolean,
+    onNavigateToStudents: () -> Unit,
+    onNavigateToLeave: () -> Unit,
+    onNavigateToRemarks: () -> Unit,
+    onNavigateToFees: () -> Unit,
+    onNavigateToFinance: () -> Unit,
+    onNavigateToTransport: () -> Unit,
+    onNavigateToNotices: () -> Unit,
+    onNavigateToGallery: () -> Unit
+) {
+    val isStaff = role != "Guardian" && role != "Student"
+
+    // Define items to show
+    val items = remember(role, isHindi) {
+        buildList {
+            // 1. Student / Child / Self
+            val studentLabel = when (role) {
+                "Guardian" -> if (isHindi) "बच्चा" else "Child"
+                "Student" -> if (isHindi) "स्वयं" else "Self"
+                else -> if (isHindi) "छात्र" else "Students"
+            }
+            add(QuickActionItem(studentLabel, Lucide.Users, onNavigateToStudents))
+
+            // 2. Leaves
+            add(QuickActionItem(if (isHindi) "छुट्टियाँ" else "Leaves", Lucide.Calendar, onNavigateToLeave))
+
+            // 3. Remarks
+            add(QuickActionItem(if (isHindi) "टिप्पणियाँ" else "Remarks", Lucide.MessageCircle, onNavigateToRemarks))
+
+            // 4. Fees (Visible to Guardian, Student, and Staff roles)
+            add(QuickActionItem(if (isHindi) "फीस" else "Fees", Lucide.CreditCard, onNavigateToFees))
+
+            // 5. Finance/Salary (Visible only to Staff roles)
+            if (isStaff) {
+                add(QuickActionItem(if (isHindi) "सैलरी" else "Salary", Lucide.Coins, onNavigateToFinance))
+            }
+
+            // 6. Transport/Bus
+            add(QuickActionItem(if (isHindi) "परिवहन" else "Transport", Lucide.Bus, onNavigateToTransport))
+
+            // 7. Notices
+            add(QuickActionItem(if (isHindi) "सूचनाएं" else "Notices", Lucide.Megaphone, onNavigateToNotices))
+
+            // 8. Gallery
+            add(QuickActionItem(if (isHindi) "गैलरी" else "Gallery", Lucide.Image, onNavigateToGallery))
+        }
+    }
+
+    androidx.compose.foundation.lazy.LazyRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(horizontal = 4.dp)
+    ) {
+        items(items) { item ->
+            Column(
+                modifier = Modifier
+                    .clickable { item.onClick() }
+                    .padding(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = item.icon,
+                    contentDescription = item.label,
+                    modifier = Modifier.size(28.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = item.label,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+    }
+}
+
+data class QuickActionItem(
+    val label: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val onClick: () -> Unit
+)
+
+@Composable
+fun NoticesSubScreen(
+    state: InstitutionUiState,
+    isHindi: Boolean,
+    isDark: Boolean,
+    onBack: () -> Unit
+) {
+    val backgroundColor = MaterialTheme.colorScheme.background
+    val textColor = MaterialTheme.colorScheme.onBackground
+    val cardBg = if (isDark) Color(0xFF1E1E20) else Color.White
+    val cardBorderColor = if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E5EA)
+    val textColorSecondary = if (isDark) Color(0xFFA3A3A3) else Color(0xFF737373)
+    val dividerColor = MaterialTheme.colorScheme.outlineVariant
+
+    val notices = remember(state.contentFeedItems) {
+        state.contentFeedItems.filter { it.contentType == "notice" }
+    }
+
+    Scaffold(
+        topBar = {
+            Column(modifier = Modifier.fillMaxWidth().background(backgroundColor)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .height(56.dp)
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Lucide.ArrowLeft,
+                            contentDescription = "Back",
+                            tint = textColor,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = if (isHindi) "सूचनाएं" else "Notices",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = textColor
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(0.5.dp)
+                        .background(dividerColor)
+                )
+            }
+        },
+        containerColor = backgroundColor
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .background(backgroundColor)
+        ) {
+            if (notices.isEmpty()) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier.padding(24.dp).fillMaxSize()
+                ) {
+                    Icon(
+                        imageVector = Lucide.Megaphone,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(64.dp)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = if (isHindi) "कोई नई सूचना नहीं है" else "No new notices",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = textColor
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = if (isHindi) "संस्थान द्वारा जारी सभी महत्वपूर्ण सूचनाएं यहाँ दिखाई देंगी।" else "All important notices issued by the institution will appear here.",
+                        fontSize = 13.sp,
+                        color = textColorSecondary,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(notices) { notice ->
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(1.dp, cardBorderColor, RoundedCornerShape(12.dp)),
+                            shape = RoundedCornerShape(12.dp),
+                            color = cardBg
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = notice.publisherName,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = AppColors.EmeraldGreen
+                                    )
+                                    Text(
+                                        text = notice.createdAt.split("T").firstOrNull() ?: "",
+                                        fontSize = 11.sp,
+                                        color = textColorSecondary
+                                    )
+                                }
+                                if (!notice.title.isNullOrBlank()) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = notice.title,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = textColor
+                                    )
+                                }
+                                if (!notice.description.isNullOrBlank()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = notice.description,
+                                        fontSize = 13.sp,
+                                        color = textColorSecondary,
+                                        lineHeight = 18.sp
+                                    )
+                                }
+                                if (!notice.imageUrl.isNullOrBlank()) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    AsyncImage(
+                                        model = notice.imageUrl,
+                                        contentDescription = notice.title,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(180.dp)
+                                            .clip(RoundedCornerShape(8.dp)),
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun GallerySubScreen(
+    state: InstitutionUiState,
+    isHindi: Boolean,
+    isDark: Boolean,
+    onBack: () -> Unit
+) {
+    val backgroundColor = MaterialTheme.colorScheme.background
+    val textColor = MaterialTheme.colorScheme.onBackground
+    val cardBg = if (isDark) Color(0xFF1E1E20) else Color.White
+    val cardBorderColor = if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E5EA)
+    val textColorSecondary = if (isDark) Color(0xFFA3A3A3) else Color(0xFF737373)
+    val dividerColor = MaterialTheme.colorScheme.outlineVariant
+
+    val galleryItems = remember(state.contentFeedItems) {
+        state.contentFeedItems.filter { it.contentType == "gallery" }
+    }
+
+    Scaffold(
+        topBar = {
+            Column(modifier = Modifier.fillMaxWidth().background(backgroundColor)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .height(56.dp)
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Lucide.ArrowLeft,
+                            contentDescription = "Back",
+                            tint = textColor,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = if (isHindi) "गैलरी" else "Gallery",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = textColor
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(0.5.dp)
+                        .background(dividerColor)
+                )
+            }
+        },
+        containerColor = backgroundColor
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .background(backgroundColor)
+        ) {
+            if (galleryItems.isEmpty()) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier.padding(24.dp).fillMaxSize()
+                ) {
+                    Icon(
+                        imageVector = Lucide.Image,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(64.dp)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = if (isHindi) "गैलरी खाली है" else "Gallery is empty",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = textColor
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = if (isHindi) "संस्थान द्वारा साझा की गई इवेंट तस्वीरें यहाँ दिखाई देंगी।" else "Event photos shared by the institution will be displayed here.",
+                        fontSize = 13.sp,
+                        color = textColorSecondary,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            } else {
+                val chunkedItems = remember(galleryItems) { galleryItems.chunked(2) }
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(chunkedItems) { row ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            row.forEach { item ->
+                                Card(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .border(1.dp, cardBorderColor, RoundedCornerShape(12.dp)),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(containerColor = cardBg)
+                                ) {
+                                    Column {
+                                        AsyncImage(
+                                            model = item.imageUrl ?: "",
+                                            contentDescription = item.title,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(130.dp)
+                                                .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)),
+                                            contentScale = androidx.compose.ui.layout.ContentScale.Companion.Crop
+                                        )
+                                        Column(modifier = Modifier.padding(8.dp)) {
+                                            Text(
+                                                text = item.title ?: (if (isHindi) "संस्थान इवेंट" else "Campus Event"),
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = textColor,
+                                                maxLines = 1,
+                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = item.publisherName,
+                                                fontSize = 10.sp,
+                                                color = textColorSecondary,
+                                                maxLines = 1,
+                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            if (row.size < 2) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+

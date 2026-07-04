@@ -23,8 +23,15 @@ class ProfileRepositoryImpl(
     override suspend fun syncProfile(userId: String): Result<Unit> {
         return runCatching {
             val remoteProfileDto = remoteDataSource.getProfile(userId)
-            localDataSource.saveProfile(remoteProfileDto.toEntity())
+            val inspiringCount = remoteDataSource.getInspiringCount(userId)
+            val inspiredCount = remoteDataSource.getInspiredCount(userId)
+            val entity = remoteProfileDto.toEntity().copy(
+                totalInspiringCount = inspiredCount,
+                totalInspiredCount = inspiringCount
+            )
+            localDataSource.saveProfile(entity)
         }.onFailure { e ->
+            if (e is kotlinx.coroutines.CancellationException) throw e
             android.util.Log.e("VidyaSetu_ProfileRepo", "Error syncing profile for user: $userId", e)
         }
     }
@@ -36,6 +43,7 @@ class ProfileRepositoryImpl(
             // Sync to Supabase
             remoteDataSource.updateProfile(profile.toDto())
         }.onFailure { e ->
+            if (e is kotlinx.coroutines.CancellationException) throw e
             android.util.Log.e("VidyaSetu_ProfileRepo", "Error updating profile for user: ${profile.userId}", e)
         }
     }
@@ -44,6 +52,7 @@ class ProfileRepositoryImpl(
         return runCatching {
             remoteDataSource.checkUsernameUnique(username, currentUserId)
         }.onFailure { e ->
+            if (e is kotlinx.coroutines.CancellationException) throw e
             android.util.Log.e("VidyaSetu_ProfileRepo", "Error checking username uniqueness for: $username", e)
         }
     }
@@ -59,6 +68,7 @@ class ProfileRepositoryImpl(
                 localDataSource.saveVerification(remoteVerificationDto.toEntity())
             }
         }.onFailure { e ->
+            if (e is kotlinx.coroutines.CancellationException) throw e
             android.util.Log.e("VidyaSetu_ProfileRepo", "Error syncing verification for user: $userId", e)
         }
     }
@@ -69,6 +79,7 @@ class ProfileRepositoryImpl(
             // Immediately sync back verification status from Supabase to show as Pending
             syncVerification(userId).getOrThrow()
         }.onFailure { e ->
+            if (e is kotlinx.coroutines.CancellationException) throw e
             android.util.Log.e("VidyaSetu_ProfileRepo", "Error applying for verification for user: $userId", e)
         }
     }
@@ -79,6 +90,7 @@ class ProfileRepositoryImpl(
             localDataSource.saveProfile(remoteProfileDto.toEntity())
             remoteProfileDto.toDomain()
         }.onFailure { e ->
+            if (e is kotlinx.coroutines.CancellationException) throw e
             android.util.Log.e("VidyaSetu_ProfileRepo", "Error getting profile for user: $userId", e)
         }
     }
@@ -87,6 +99,7 @@ class ProfileRepositoryImpl(
         return runCatching {
             remoteDataSource.toggleUserInspiration(inspiredUserId, inspiringUserId)
         }.onFailure { e ->
+            if (e is kotlinx.coroutines.CancellationException) throw e
             android.util.Log.e("VidyaSetu_ProfileRepo", "Error toggling user inspiration connection", e)
         }
     }
@@ -95,6 +108,7 @@ class ProfileRepositoryImpl(
         return runCatching {
             remoteDataSource.getInspiredCount(userId)
         }.onFailure { e ->
+            if (e is kotlinx.coroutines.CancellationException) throw e
             android.util.Log.e("VidyaSetu_ProfileRepo", "Error getting inspired count for user: $userId", e)
         }
     }
@@ -103,6 +117,7 @@ class ProfileRepositoryImpl(
         return runCatching {
             remoteDataSource.getInspiringCount(userId)
         }.onFailure { e ->
+            if (e is kotlinx.coroutines.CancellationException) throw e
             android.util.Log.e("VidyaSetu_ProfileRepo", "Error getting inspiring count for user: $userId", e)
         }
     }
@@ -111,6 +126,7 @@ class ProfileRepositoryImpl(
         return runCatching {
             remoteDataSource.isInspiredBy(inspiredUserId, inspiringUserId)
         }.onFailure { e ->
+            if (e is kotlinx.coroutines.CancellationException) throw e
             android.util.Log.e("VidyaSetu_ProfileRepo", "Error checking isInspiredBy", e)
         }
     }
@@ -119,6 +135,7 @@ class ProfileRepositoryImpl(
         return runCatching {
             remoteDataSource.getInspiredUsers(userId).map { it.toDomain() }
         }.onFailure { e ->
+            if (e is kotlinx.coroutines.CancellationException) throw e
             android.util.Log.e("VidyaSetu_ProfileRepo", "Error getting inspired users for: $userId", e)
         }
     }
@@ -127,6 +144,7 @@ class ProfileRepositoryImpl(
         return runCatching {
             remoteDataSource.getInspiringUsers(userId).map { it.toDomain() }
         }.onFailure { e ->
+            if (e is kotlinx.coroutines.CancellationException) throw e
             android.util.Log.e("VidyaSetu_ProfileRepo", "Error getting inspiring users for: $userId", e)
         }
     }

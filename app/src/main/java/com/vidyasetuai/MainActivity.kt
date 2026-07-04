@@ -29,10 +29,12 @@ import com.vidyasetuai.feature_auth.data.repository.AuthRepositoryImpl
 import com.vidyasetuai.feature_auth.presentation.screen.LoginScreen
 import android.content.Intent
 import com.vidyasetuai.feature_auth.presentation.screen.SignUpScreen
-import com.vidyasetuai.feature_auth.presentation.screen.SplashScreen
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.core.splashscreen.SplashScreenViewProvider
 
 class MainActivity : ComponentActivity() {
     private val navigateToFlow = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    private var isAppReady = false
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -44,6 +46,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splashScreen = installSplashScreen()
+        
         if (!isTaskRoot
             && intent.hasCategory(Intent.CATEGORY_LAUNCHER)
             && intent.action != null
@@ -57,6 +61,35 @@ class MainActivity : ComponentActivity() {
             navigateToFlow.value = dest
         }
         super.onCreate(savedInstanceState)
+        
+        // Keep starting splash screen visible until app logic is fully ready
+        splashScreen.setKeepOnScreenCondition {
+            !isAppReady
+        }
+        
+        // Custom exit zoom transition for the system splash screen logo
+        splashScreen.setOnExitAnimationListener { splashScreenViewProvider: SplashScreenViewProvider ->
+            val iconView = splashScreenViewProvider.iconView
+            
+            val scaleX = android.animation.ObjectAnimator.ofFloat(iconView, android.view.View.SCALE_X, 1f, 1.4f)
+            val scaleY = android.animation.ObjectAnimator.ofFloat(iconView, android.view.View.SCALE_Y, 1f, 1.4f)
+            val alpha = android.animation.ObjectAnimator.ofFloat(iconView, android.view.View.ALPHA, 1f, 0f)
+            val fadeBg = android.animation.ObjectAnimator.ofFloat(splashScreenViewProvider.view, android.view.View.ALPHA, 1f, 0f)
+            
+            val animatorSet = android.animation.AnimatorSet().apply {
+                playTogether(scaleX, scaleY, alpha, fadeBg)
+                duration = 500L
+                interpolator = android.view.animation.DecelerateInterpolator()
+            }
+            
+            animatorSet.addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    splashScreenViewProvider.remove()
+                }
+            })
+            animatorSet.start()
+        }
+        
         enableEdgeToEdge()
         setContent {
             val context = LocalContext.current
@@ -68,6 +101,31 @@ class MainActivity : ComponentActivity() {
                 "dark" -> true
                 "light" -> false
                 else -> androidx.compose.foundation.isSystemInDarkTheme()
+            }
+
+            LaunchedEffect(isDarkTheme) {
+                enableEdgeToEdge(
+                    statusBarStyle = if (isDarkTheme) {
+                        androidx.activity.SystemBarStyle.dark(
+                            android.graphics.Color.TRANSPARENT
+                        )
+                    } else {
+                        androidx.activity.SystemBarStyle.light(
+                            android.graphics.Color.TRANSPARENT,
+                            android.graphics.Color.TRANSPARENT
+                        )
+                    },
+                    navigationBarStyle = if (isDarkTheme) {
+                        androidx.activity.SystemBarStyle.dark(
+                            android.graphics.Color.TRANSPARENT
+                        )
+                    } else {
+                        androidx.activity.SystemBarStyle.light(
+                            android.graphics.Color.TRANSPARENT,
+                            android.graphics.Color.TRANSPARENT
+                        )
+                    }
+                )
             }
 
             VidyaStuTheme(darkTheme = isDarkTheme) {
@@ -83,10 +141,9 @@ class MainActivity : ComponentActivity() {
                 
                 val scope = rememberCoroutineScope()
 
-                var currentScreen by remember { mutableStateOf("splash") }
+                var currentScreen by remember { mutableStateOf("") }
                 
                 var targetScreen by remember { mutableStateOf<String?>(null) }
-                var isSplashDelayDone by remember { mutableStateOf(false) }
 
                 // Parallelize checking of session, version, and permissions on startup
                 LaunchedEffect(Unit) {
@@ -130,9 +187,10 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Smoothly navigate only after the splash delay is complete and target screen is identified
-                LaunchedEffect(targetScreen, isSplashDelayDone) {
-                    if (isSplashDelayDone && targetScreen != null) {
+                // Smoothly navigate only after the target screen is identified
+                LaunchedEffect(targetScreen) {
+                    if (targetScreen != null) {
+                        isAppReady = true
                         currentScreen = targetScreen!!
                     }
                 }
@@ -165,11 +223,14 @@ class MainActivity : ComponentActivity() {
                 }
 
                 when (currentScreen) {
-                    "splash" -> SplashScreen(
-                        onNavigateToLogin = {
-                            isSplashDelayDone = true
-                        }
-                    )
+                    "" -> {
+                        // Empty background container to wait for system splash transition
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(if (isDarkTheme) Color(0xFF121212) else Color.White)
+                        )
+                    }
                     "update_screen" -> {
                         if (latestVersionInfo != null) {
                             com.vidyasetuai.core.update.presentation.components.UpdateScreen(

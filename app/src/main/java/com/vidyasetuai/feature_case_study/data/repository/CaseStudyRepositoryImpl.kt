@@ -205,6 +205,7 @@ class CaseStudyRepositoryImpl(
             }
             Result.success(caseStudies)
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             android.util.Log.e("VidyaSetu_CaseStudyRepo", "Error fetching user uploaded case studies", e)
             Result.failure(e)
         }

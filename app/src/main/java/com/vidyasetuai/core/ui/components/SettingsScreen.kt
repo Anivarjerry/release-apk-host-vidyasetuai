@@ -1,6 +1,8 @@
 package com.vidyasetuai.core.ui.components
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -16,13 +18,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.composables.icons.lucide.ArrowLeft
-import com.composables.icons.lucide.FileText
-import com.composables.icons.lucide.Globe
-import com.composables.icons.lucide.Info
-import com.composables.icons.lucide.Lucide
-import com.composables.icons.lucide.Sun
-import com.composables.icons.lucide.LogOut
+import com.composables.icons.lucide.*
 import com.vidyasetuai.core.ui.colors.AppColors
 
 @Composable
@@ -38,6 +34,16 @@ fun SettingsScreen(
     val sessionManager = remember { com.vidyasetuai.core.auth.SessionManager(context) }
     val prefs = remember { context.getSharedPreferences("app_settings", Context.MODE_PRIVATE) }
     val isHindi = currentLanguage == "hi"
+
+    // Dynamically retrieve real app version from package manager
+    val packageInfo = remember {
+        try {
+            context.packageManager.getPackageInfo(context.packageName, 0)
+        } catch (e: Exception) {
+            null
+        }
+    }
+    val versionName = packageInfo?.versionName ?: "1.7"
 
     var showThemeDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
@@ -55,11 +61,14 @@ fun SettingsScreen(
 
     var showAboutScreen by remember { mutableStateOf(false) }
     var showTermsScreen by remember { mutableStateOf(false) }
+    var showHelpScreen by remember { mutableStateOf(false) }
 
     if (showAboutScreen) {
         AboutScreen(onBack = { showAboutScreen = false })
     } else if (showTermsScreen) {
         TermsScreen(onBack = { showTermsScreen = false })
+    } else if (showHelpScreen) {
+        HelpSupportScreen(onBack = { showHelpScreen = false })
     } else {
         Scaffold(
             modifier = modifier.fillMaxSize(),
@@ -141,9 +150,56 @@ fun SettingsScreen(
                         .padding(vertical = 8.dp)
                 )
 
-                // Section 2: Info & Terms Header
+                // Section 2: Support & Community Header
                 Text(
-                    text = if (isHindi) "अन्य जानकारी" else "More Info",
+                    text = if (isHindi) "सहायता और समुदाय" else "Support & Community",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.EmeraldGreen,
+                    modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
+                )
+
+                SettingsRow(
+                    icon = Lucide.Info,
+                    title = if (isHindi) "मदद और सहायता" else "Help & Support",
+                    subtitle = if (isHindi) "ईमेल, कॉल और सोशल मीडिया लिंक" else "Email, call & social media links",
+                    onClick = { showHelpScreen = true }
+                )
+
+                SettingsRow(
+                    icon = Lucide.MessageCircle,
+                    title = if (isHindi) "कीड़ा रिपोर्ट / फीडबैक" else "Report a Bug / Feedback",
+                    subtitle = if (isHindi) "व्हाट्सएप ग्रुप पर हमसे बात करें" else "Talk to us on WhatsApp group",
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://chat.whatsapp.com/KingWyOnciSFOVUTE88j1Z"))
+                        context.startActivity(intent)
+                    }
+                )
+
+                SettingsRow(
+                    icon = Lucide.ExternalLink,
+                    title = if (isHindi) "ऐप शेयर करें" else "Share App",
+                    subtitle = if (isHindi) "विद्यासेतु ऐप साझा करें" else "Share VidyaSetu AI with others",
+                    onClick = {
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, "Hey! Check out the VidyaSetu AI app: https://vidyasetuai.com")
+                        }
+                        context.startActivity(Intent.createChooser(shareIntent, if (isHindi) "ऐप साझा करें" else "Share App via"))
+                    }
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(0.5.dp)
+                        .background(MaterialTheme.colorScheme.outlineVariant)
+                        .padding(vertical = 8.dp)
+                )
+
+                // Section 3: Legal & Security Header
+                Text(
+                    text = if (isHindi) "कानूनी और सुरक्षा" else "Legal & Security",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     color = AppColors.EmeraldGreen,
@@ -158,9 +214,36 @@ fun SettingsScreen(
                 )
 
                 SettingsRow(
-                    icon = Lucide.Info,
+                    icon = Lucide.Trash,
+                    title = if (isHindi) "खाता हटाएं" else "Delete Account",
+                    subtitle = if (isHindi) "व्हाट्सएप द्वारा खाता हटाने का अनुरोध करें" else "Request account deletion via WhatsApp",
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://chat.whatsapp.com/KingWyOnciSFOVUTE88j1Z"))
+                        context.startActivity(intent)
+                    }
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(0.5.dp)
+                        .background(MaterialTheme.colorScheme.outlineVariant)
+                        .padding(vertical = 8.dp)
+                )
+
+                // Section 4: App Info Header
+                Text(
+                    text = if (isHindi) "ऐप की जानकारी" else "App Info",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.EmeraldGreen,
+                    modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
+                )
+
+                SettingsRow(
+                    icon = Lucide.Sparkles,
                     title = if (isHindi) "हमारे बारे में" else "About Us",
-                    subtitle = "v2.0.0",
+                    subtitle = "v$versionName (${if (isHindi) "अप-टू-डेट" else "Up to date"})",
                     onClick = { showAboutScreen = true }
                 )
 

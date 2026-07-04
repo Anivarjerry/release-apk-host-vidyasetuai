@@ -73,6 +73,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import android.net.Uri
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.Build
+import androidx.annotation.RequiresApi
+import androidx.compose.foundation.layout.PaddingValues
 import java.io.ByteArrayOutputStream
 import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.text.BasicTextField
@@ -92,13 +95,33 @@ import com.vidyasetuai.feature_profile.presentation.screen.ProfileScreen
 import com.vidyasetuai.feature_profile.presentation.screen.PublicProfileScreen
 import com.vidyasetuai.feature_profile.presentation.screen.InspirationsListScreen
 import com.vidyasetuai.feature_feed.presentation.screen.TournamentEvent
+import com.vidyasetuai.feature_profile.presentation.viewmodel.ProfileViewModel
+import com.vidyasetuai.feature_profile.data.local.datasource.ProfileLocalDataSource
+import com.vidyasetuai.feature_profile.data.remote.datasource.ProfileRemoteDataSource
+import com.vidyasetuai.feature_profile.data.repository.ProfileRepositoryImpl
+import com.vidyasetuai.feature_profile.domain.usecase.GetUserProfileUseCase
+import com.vidyasetuai.feature_profile.domain.usecase.UpdateUserProfileUseCase
+import com.vidyasetuai.feature_profile.domain.usecase.CheckUsernameUniqueUseCase
+import com.vidyasetuai.feature_profile.domain.usecase.ApplyForVerificationUseCase
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import com.vidyasetuai.feature_institution.domain.model.ConnectionState
 import com.vidyasetuai.feature_institution.data.repository.InstitutionRepositoryImpl
 import com.vidyasetuai.feature_institution.presentation.viewmodel.InstitutionViewModel
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import com.vidyasetuai.feature_institution.presentation.component.DashboardFloatingActionButton
+import com.vidyasetuai.feature_institution.util.DashboardFabRules
 
+data class NavState(
+    val tab: String,
+    val selectedCaseStudyId: String? = null,
+    val selectedPublicProfileUserId: String? = null,
+    val inspirationsListUserId: String? = null,
+    val inspirationsDefaultTab: Int = 0
+)
+
+@RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun DashboardScreen(
     currentTheme: String,
@@ -115,26 +138,77 @@ fun DashboardScreen(
     var selectedPublicProfileUserId by remember { mutableStateOf<String?>(null) }
     var inspirationsListUserId by remember { mutableStateOf<String?>(null) }
     var inspirationsDefaultTab by remember { mutableStateOf(0) }
-    var navigationStack by remember { mutableStateOf(listOf("home")) }
+    
+    var navigationStack by remember { 
+        mutableStateOf(
+            listOf(
+                NavState(
+                    tab = "home",
+                    selectedCaseStudyId = null,
+                    selectedPublicProfileUserId = null,
+                    inspirationsListUserId = null,
+                    inspirationsDefaultTab = 0
+                )
+            )
+        )
+    }
 
     fun navigateTo(tab: String) {
-        navigationStack = navigationStack + activeTab
+        val currentState = NavState(
+            tab = activeTab,
+            selectedCaseStudyId = selectedCaseStudyId,
+            selectedPublicProfileUserId = selectedPublicProfileUserId,
+            inspirationsListUserId = inspirationsListUserId,
+            inspirationsDefaultTab = inspirationsDefaultTab
+        )
+        navigationStack = navigationStack + currentState
         activeTab = tab
     }
 
     fun navigateBack() {
-        if (navigationStack.isNotEmpty()) {
-            val prev = navigationStack.last()
-            navigationStack = navigationStack.dropLast(1)
-            activeTab = prev
+        if (navigationStack.size > 1) {
+            val prevStack = navigationStack.dropLast(1)
+            val prevState = prevStack.last()
+            navigationStack = prevStack
+            
+            activeTab = prevState.tab
+            selectedCaseStudyId = prevState.selectedCaseStudyId
+            selectedPublicProfileUserId = prevState.selectedPublicProfileUserId
+            inspirationsListUserId = prevState.inspirationsListUserId
+            inspirationsDefaultTab = prevState.inspirationsDefaultTab
         } else {
             activeTab = "home"
+            selectedCaseStudyId = null
+            selectedPublicProfileUserId = null
+            inspirationsListUserId = null
+            inspirationsDefaultTab = 0
+            navigationStack = listOf(
+                NavState(
+                    tab = "home",
+                    selectedCaseStudyId = null,
+                    selectedPublicProfileUserId = null,
+                    inspirationsListUserId = null,
+                    inspirationsDefaultTab = 0
+                )
+            )
         }
     }
 
     fun selectTab(tab: String) {
-        navigationStack = listOf("home")
         activeTab = tab
+        selectedCaseStudyId = null
+        selectedPublicProfileUserId = null
+        inspirationsListUserId = null
+        inspirationsDefaultTab = 0
+        navigationStack = listOf(
+            NavState(
+                tab = tab,
+                selectedCaseStudyId = null,
+                selectedPublicProfileUserId = null,
+                inspirationsListUserId = null,
+                inspirationsDefaultTab = 0
+            )
+        )
     }
 
     LaunchedEffect(navTarget) {
@@ -155,6 +229,9 @@ fun DashboardScreen(
     var connectionState by remember { mutableStateOf<ConnectionState?>(null) }
     val scope = rememberCoroutineScope()
     var isVerified by remember { mutableStateOf(false) }
+    
+    val workspacesList by remember { db.institutionDao().getWorkspacesFlow() }
+        .collectAsState(initial = emptyList())
 
     LaunchedEffect(userId) {
         if (userId.isNotEmpty()) {
@@ -164,7 +241,24 @@ fun DashboardScreen(
         }
     }
 
+    LaunchedEffect(workspacesList) {
+        if (workspacesList.isEmpty() && activeTab == "institute") {
+            activeTab = "home"
+        }
+    }
+
     val experienceViewModel = remember { ExperienceViewModel() }
+    
+    val profileViewModel = remember(userId) {
+        val localDS = ProfileLocalDataSource(db.userProfileDao())
+        val remoteDS = ProfileRemoteDataSource()
+        val repo = ProfileRepositoryImpl(localDS, remoteDS)
+        val getProfileUC = GetUserProfileUseCase(repo)
+        val updateProfileUC = UpdateUserProfileUseCase(repo)
+        val checkUsernameUC = CheckUsernameUniqueUseCase(repo)
+        val applyVerificationUC = ApplyForVerificationUseCase(repo)
+        ProfileViewModel(getProfileUC, updateProfileUC, checkUsernameUC, applyVerificationUC)
+    }
     
     val campusViewModel = remember(userId) {
         val campusDao = db.campusDao()
@@ -261,13 +355,26 @@ fun DashboardScreen(
 
     LaunchedEffect(userId) {
         if (userId.isNotEmpty()) {
-            // First check local Room DB for workspaces or active session to set CONNECTED immediately if cache exists
+            // 1. First check local Room DB for workspaces or active session to set CONNECTED immediately if cache exists
             val localWorkspaces = db.institutionDao().getWorkspaces()
             val localSession = db.institutionDao().getActiveSession()
             if (localWorkspaces.isNotEmpty() || localSession != null) {
                 connectionState = ConnectionState.CONNECTED
             }
 
+            // 2. Fetch and sync workspaces from Supabase in the background so bottom nav updates
+            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                repository.getWorkspaces(userId).fold(
+                    onSuccess = { list ->
+                        android.util.Log.d("VidyaSetu_Dashboard", "Successfully fetched workspaces: ${list.size}")
+                    },
+                    onFailure = { error ->
+                        android.util.Log.e("VidyaSetu_Dashboard", "Error syncing workspaces in background", error)
+                    }
+                )
+            }
+
+            // 3. Keep connection status checking active
             while (true) {
                 triggerCheck()
                 kotlinx.coroutines.delay(5000)
@@ -422,11 +529,16 @@ fun DashboardScreen(
             }
         }
     } else {
-        // Standard dashboard layout with top bar and bottom navigation bar
-        Scaffold(
+        val isSubScreenActive = activeTab == "institute" && institutionViewModel.uiState.value.activeSubScreen != null
+        var isBrowsingTemplatesInJourney by remember { mutableStateOf(false) }
+        
+        Box(modifier = Modifier.fillMaxSize()) {
+            // Standard dashboard layout with top bar and bottom navigation bar
+            Scaffold(
             modifier = modifier.fillMaxSize(),
             topBar = {
-                Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)) {
+                if (!isSubScreenActive) {
+                    Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)) {
                     val topBarTitle = when (activeTab) {
                         "home" -> "VidyaSetu AI"
                         "institute" -> if (isHindi) "संस्थान" else "Institute"
@@ -494,10 +606,12 @@ fun DashboardScreen(
                             .background(MaterialTheme.colorScheme.outlineVariant)
                     )
                 }
+                }
             },
             bottomBar = {
-                Column(
-                    modifier = Modifier
+                if (!isSubScreenActive) {
+                    Column(
+                        modifier = Modifier
                         .fillMaxWidth()
                         .background(MaterialTheme.colorScheme.background)
                         .navigationBarsPadding()
@@ -541,27 +655,29 @@ fun DashboardScreen(
                         }
 
                         // 2nd Tab: Institute (School icon)
-                        val isInst = activeTab == "institute"
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { selectTab("institute") },
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Lucide.School,
-                                contentDescription = "Institute",
-                                tint = if (isInst) AppColors.EmeraldGreen else Color(0xFF8E8E93),
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(modifier = Modifier.height(3.dp))
-                            Text(
-                                text = if (isHindi) "संस्थान" else "Institute",
-                                fontSize = 10.sp,
-                                fontWeight = if (isInst) FontWeight.SemiBold else FontWeight.Normal,
-                                color = if (isInst) AppColors.EmeraldGreen else Color(0xFF8E8E93)
-                            )
+                        if (workspacesList.isNotEmpty()) {
+                            val isInst = activeTab == "institute"
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { selectTab("institute") },
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Lucide.School,
+                                    contentDescription = "Institute",
+                                    tint = if (isInst) AppColors.EmeraldGreen else Color(0xFF8E8E93),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = if (isHindi) "संस्थान" else "Institute",
+                                    fontSize = 10.sp,
+                                    fontWeight = if (isInst) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = if (isInst) AppColors.EmeraldGreen else Color(0xFF8E8E93)
+                                )
+                            }
                         }
 
                         // 3rd Tab: Journey (Compass icon)
@@ -637,13 +753,14 @@ fun DashboardScreen(
                         }
                     }
                 }
+                }
             }
         ) { innerPadding ->
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.background)
-                    .padding(innerPadding)
+                    .padding(if (isSubScreenActive) PaddingValues(0.dp) else innerPadding)
             ) {
                 when (activeTab) {
                     "home" -> HomeScreen(
@@ -714,13 +831,16 @@ fun DashboardScreen(
                         JourneyScreen(
                             viewModel = journeyViewModel,
                             currentLanguage = currentLanguage,
-                            currentTheme = currentTheme
+                            currentTheme = currentTheme,
+                            isBrowsingTemplates = isBrowsingTemplatesInJourney,
+                            onBrowsingTemplatesChange = { isBrowsingTemplatesInJourney = it }
                         )
                     }
                     "tournament" -> TournamentEvent(currentLanguage = currentLanguage, currentTheme = currentTheme)
                     "profile" -> ProfileScreen(
                         userId = userId,
                         currentLanguage = currentLanguage,
+                        viewModel = profileViewModel,
                         onCaseStudyClick = { caseStudyId ->
                             selectedCaseStudyId = caseStudyId
                             navigateTo("case_study_detail")
@@ -854,6 +974,47 @@ fun DashboardScreen(
                     }
                 }
             }
+        }
+            
+        if (institutionViewModel.uiState.value.activeSubScreen == null) {
+            DashboardFloatingActionButton(
+                activeTab = activeTab,
+                role = institutionViewModel.uiState.value.activeWorkspace?.role ?: "",
+                isHindi = isHindi,
+                isDark = when (currentTheme) {
+                    "dark" -> true
+                    "light" -> false
+                    else -> androidx.compose.foundation.isSystemInDarkTheme()
+                },
+                onActionClick = { route, requiresToast, label ->
+                    if (requiresToast) {
+                        android.widget.Toast.makeText(context, label, android.widget.Toast.LENGTH_SHORT).show()
+                    } else {
+                        when (route) {
+                            "add_case_study" -> {
+                                checkVerificationAndRun {
+                                    showUploadCaseStudyDialog = true
+                                }
+                            }
+                            "add_experience" -> {
+                                checkVerificationAndRun {
+                                    showUploadExperienceDialog = true
+                                }
+                            }
+                            "add_journey" -> {
+                                isBrowsingTemplatesInJourney = true
+                            }
+                            else -> {
+                                institutionViewModel.onEvent(
+                                    com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(route)
+                                )
+                            }
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
         }
     }
 }
@@ -1458,10 +1619,10 @@ fun UploadExperienceDialog(
     var description by remember { mutableStateOf("") }
     var coverImageUrl by remember { mutableStateOf<String?>(null) }
     var isUploading by remember { mutableStateOf(false) }
-    
+
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
-    
+
     val pickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -1472,7 +1633,8 @@ fun UploadExperienceDialog(
                 scope.launch {
                     isUploading = true
                     try {
-                        val publicUrl = SupabaseStorageHelper.uploadImage("users_cover_image", fileName, bytes)
+                        val publicUrl =
+                            SupabaseStorageHelper.uploadImage("users_cover_image", fileName, bytes)
                         coverImageUrl = publicUrl
                     } catch (e: Exception) {
                         android.util.Log.e("UploadDialog", "Failed to upload experience image", e)
@@ -1504,7 +1666,7 @@ fun UploadExperienceDialog(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(modifier = Modifier.height(16.dp))
-                
+
                 // Title Field
                 Text(
                     text = if (isHindi) "शीर्षक (Title)" else "Title",
@@ -1516,7 +1678,10 @@ fun UploadExperienceDialog(
                 BasicTextField(
                     value = title,
                     onValueChange = { title = it },
-                    textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp),
+                    textStyle = TextStyle(
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 15.sp
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(MaterialTheme.colorScheme.background, RoundedCornerShape(6.dp))
@@ -1545,7 +1710,10 @@ fun UploadExperienceDialog(
                 BasicTextField(
                     value = description,
                     onValueChange = { description = it },
-                    textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp),
+                    textStyle = TextStyle(
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 15.sp
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(80.dp)

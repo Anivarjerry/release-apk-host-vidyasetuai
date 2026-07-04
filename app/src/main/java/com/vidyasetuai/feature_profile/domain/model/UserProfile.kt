@@ -2,6 +2,9 @@ package com.vidyasetuai.feature_profile.domain.model
 
 data class UserProfile(
     val userId: String,
+    val email: String,
+    val isActive: Boolean,
+    val isDeleted: Boolean,
     val username: String?,
     val firstName: String?,
     val lastName: String?,
@@ -12,5 +15,7 @@ data class UserProfile(
     val preferredLanguage: String?,
     val isVerified: Boolean,
     val gender: String?,
-    val dateOfBirth: String?
+    val dateOfBirth: String?,
+    val totalInspiringCount: Int = 0,
+    val totalInspiredCount: Int = 0
 )

@@ -1,14 +1,18 @@
 package com.vidyasetuai.feature_feed.presentation.screen
 
 import android.util.Log
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,18 +27,19 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.composables.icons.lucide.*
 import com.vidyasetuai.core.ui.colors.AppColors
-import android.content.Intent
-import android.net.Uri
-import android.widget.Toast
-import com.vidyasetuai.core.network.SupabaseClient
+import com.vidyasetuai.core.database.AppDatabase
+import com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent
 import com.vidyasetuai.feature_institution.presentation.state.InstitutionUiState
 import com.vidyasetuai.feature_institution.presentation.viewmodel.InstitutionViewModel
-import io.github.jan.supabase.postgrest.postgrest
-import io.github.jan.supabase.postgrest.rpc
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.*
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.contentOrNull
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,22 +54,38 @@ fun StudentDetailsSubScreen(
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
 
+    val db = remember { AppDatabase.getDatabase(context) }
+    val dao = remember { db.institutionDao() }
+
+    val stateStudent = state.selectedStudentDetail
+    var localStudent by remember { mutableStateOf<com.vidyasetuai.feature_institution.data.local.entity.LocalStudentEntity?>(null) }
+
+    LaunchedEffect(stateStudent) {
+        if (stateStudent != null) {
+            localStudent = stateStudent
+        }
+    }
+
+    // Local data loading states
+    var siblings by remember { mutableStateOf<List<com.vidyasetuai.feature_institution.data.local.entity.LocalStudentEntity>>(emptyList()) }
+    var feePayments by remember { mutableStateOf<List<com.vidyasetuai.feature_institution.data.local.entity.LocalStudentFeePaymentEntity>>(emptyList()) }
+    var additionalFees by remember { mutableStateOf<List<com.vidyasetuai.feature_institution.data.local.entity.LocalStudentAdditionalFeeEntity>>(emptyList()) }
+    var classBasicFee by remember { mutableStateOf<Double>(0.0) }
+    var examMarks by remember { mutableStateOf<List<com.vidyasetuai.feature_institution.data.local.entity.LocalStudentExamMarkEntity>>(emptyList()) }
+    var examSubjectSettings by remember { mutableStateOf<List<com.vidyasetuai.feature_institution.data.local.entity.LocalExamSubjectSettingEntity>>(emptyList()) }
+    var orgExams by remember { mutableStateOf<List<com.vidyasetuai.feature_institution.data.local.entity.LocalOrganizationExamEntity>>(emptyList()) }
+    var attendanceList by remember { mutableStateOf<List<com.vidyasetuai.feature_institution.data.local.entity.LocalStudentAttendanceEntity>>(emptyList()) }
+    var isLocalLoading by remember { mutableStateOf(true) }
+
+    // Dropdown / selector states for Call / WhatsApp action
     var actionNumbers by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var pendingActionType by remember { mutableStateOf<String?>(null) } // "call" or "whatsapp"
     var showNumberSelector by remember { mutableStateOf(false) }
 
-    fun getWhatsAppNumber(raw: String): String {
-        val digits = raw.filter { it.isDigit() }
-        return if (digits.length == 10) "91$digits" else digits
-    }
-
-    var currentStudentId by remember { mutableStateOf(studentId) }
-    var isLoading by remember { mutableStateOf(true) }
-    var errorMsg by remember { mutableStateOf<String?>(null) }
-    var data by remember { mutableStateOf<JsonObject?>(null) }
-
     // Toggle expansion states
-    var isAdditionalExpanded by remember { mutableStateOf(false) }
+    var isProfileExpanded by remember { mutableStateOf(false) }
+    var isParentsExpanded by remember { mutableStateOf(false) }
+    var isBankExpanded by remember { mutableStateOf(false) }
     var expandedExamId by remember { mutableStateOf<String?>(null) }
     var isAttendanceExpanded by remember { mutableStateOf(false) }
 
@@ -72,112 +93,189 @@ fun StudentDetailsSubScreen(
     val borderVal = if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E5EA)
     val inputBg = if (isDark) Color(0xFF2C2C2E) else Color(0xFFF2F2F7)
 
-    // Load details when studentId changes
-    LaunchedEffect(currentStudentId) {
-        if (currentStudentId.isNotEmpty()) {
-            scope.launch {
+    fun getWhatsAppNumber(raw: String): String {
+        val digits = raw.filter { it.isDigit() }
+        return if (digits.length == 10) "91$digits" else digits
+    }
+
+    // Automatically trigger ViewModel load
+    LaunchedEffect(studentId) {
+        viewModel.onEvent(InstitutionEvent.LoadStudentProfileDetails(studentId))
+    }
+
+    // Fetch related offline info as soon as student profile is loaded by ViewModel
+    LaunchedEffect(stateStudent) {
+        val currentStudent = stateStudent
+        if (currentStudent != null) {
+            isLocalLoading = true
+            withContext(Dispatchers.IO) {
                 try {
-                    isLoading = true
-                    errorMsg = null
-                    val result = withContext(Dispatchers.IO) {
-                        SupabaseClient.client.postgrest.rpc(
-                            "get_student_directory_profile",
-                            mapOf("p_student_id" to currentStudentId)
-                        ).decodeAs<JsonObject>()
+                    // 1. Sibling Lookup (Same guardian, different student ID)
+                    val sibs = if (currentStudent.guardianId.isNotEmpty()) {
+                        dao.getStudentsByGuardianId(currentStudent.guardianId).filter { it.id != currentStudent.id }
+                    } else emptyList()
+
+                    // 2. Fee Payments
+                    val payments = dao.getStudentFeePayments(listOf(currentStudent.id))
+
+                    // 3. Additional Fees
+                    val addFees = dao.getStudentAdditionalFees(currentStudent.id)
+
+                    // 4. Resolve Class Basic Fee from setups table (summing all matched entries)
+                    var basicFee = 0.0
+                    try {
+                        val setup = dao.getChildOrgSetup(currentStudent.organizationId)
+                        if (setup != null && setup.feesStructureJson.isNotEmpty()) {
+                            val jsonArray = Json.parseToJsonElement(setup.feesStructureJson).jsonArray
+                            for (element in jsonArray) {
+                                val obj = element.jsonObject
+                                val classIdInFee = obj["organization_class_id"]?.jsonPrimitive?.contentOrNull
+                                    ?: obj["class_id"]?.jsonPrimitive?.contentOrNull
+                                if (classIdInFee == currentStudent.classId) {
+                                    basicFee += obj["amount"]?.jsonPrimitive?.doubleOrNull ?: 0.0
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("StudentDetails", "Error parsing class basic fee from setup", e)
                     }
-                    data = result
+
+                    // 5. Exam Marks
+                    val marks = dao.getStudentExamMarksForStudent(currentStudent.id)
+
+                    // 5a. Load exam settings and exams for runtime lookup (Approach B)
+                    val settings = dao.getExamSubjectSettings(currentStudent.organizationId, currentStudent.activeSessionId ?: "")
+                    val exams = dao.getExams(currentStudent.organizationId, currentStudent.activeSessionId ?: "")
+
+                    // 6. Attendance Logs
+                    val atts = dao.getStudentAttendance(listOf(currentStudent.id))
+
+                    withContext(Dispatchers.Main) {
+                        siblings = sibs
+                        feePayments = payments
+                        additionalFees = addFees
+                        classBasicFee = basicFee
+                        examMarks = marks
+                        examSubjectSettings = settings
+                        orgExams = exams
+                        attendanceList = atts
+                        isLocalLoading = false
+                    }
                 } catch (e: Exception) {
-                    Log.e("StudentDetails", "Error loading profile details", e)
-                    errorMsg = e.message ?: "Failed to load details"
-                } finally {
-                    isLoading = false
+                    Log.e("StudentDetails", "Error loading offline data", e)
+                    withContext(Dispatchers.Main) {
+                        isLocalLoading = false
+                    }
                 }
             }
         }
     }
 
-    // Helper functions to safely parse nested JSON
-    fun JsonObject.getObj(key: String): JsonObject? {
-        val el = this[key]
-        return if (el != null && el !is JsonNull) el.jsonObject else null
-    }
-    fun JsonObject.getArray(key: String): JsonArray? {
-        val el = this[key]
-        return if (el != null && el !is JsonNull) el.jsonArray else null
-    }
-    fun JsonElement?.strVal(key: String, fallback: String = "—"): String {
-        if (this == null || this is JsonNull || this !is JsonObject) return fallback
-        return this[key]?.jsonPrimitive?.contentOrNull ?: fallback
-    }
-    fun JsonElement?.doubleVal(key: String, fallback: Double = 0.0): Double {
-        if (this == null || this is JsonNull || this !is JsonObject) return fallback
-        return this[key]?.jsonPrimitive?.doubleOrNull ?: fallback
-    }
-    fun JsonElement?.intVal(key: String, fallback: Int = 0): Int {
-        if (this == null || this is JsonNull || this !is JsonObject) return fallback
-        return this[key]?.jsonPrimitive?.intOrNull ?: fallback
-    }
-    fun JsonElement?.boolVal(key: String, fallback: Boolean = false): Boolean {
-        if (this == null || this is JsonNull || this !is JsonObject) return fallback
-        return this[key]?.jsonPrimitive?.booleanOrNull ?: fallback
+    // Background Network Sync (Runs once per studentId change to pull latest details, fees, and payments)
+    var hasSyncedStudentId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(studentId, stateStudent) {
+        if (stateStudent != null && hasSyncedStudentId != studentId) {
+            hasSyncedStudentId = studentId
+            scope.launch(Dispatchers.IO) {
+                try {
+                    // 1. Sync student profile, enrollment class/section/roll number, parent qualification etc.
+                    viewModel.repository.syncStudentProfileDetails(studentId)
+                    
+                    // 2. Sync additional fees
+                    viewModel.repository.syncStudentAdditionalFees(studentId)
+                    
+                    // 3. Sync fee payments
+                    viewModel.repository.getFeePayments(listOf(studentId), forceRefresh = true)
+                    
+                    // Reload local student and additional stats from DB
+                    val updatedStudent = dao.getStudentById(studentId)
+                    val updatedPayments = dao.getStudentFeePayments(listOf(studentId))
+                    val updatedAddFees = dao.getStudentAdditionalFees(studentId)
+                    val updatedSibs = if (updatedStudent?.guardianId?.isNotEmpty() == true) {
+                        dao.getStudentsByGuardianId(updatedStudent.guardianId).filter { it.id != studentId }
+                    } else emptyList()
+                    var updatedBasicFee = 0.0
+                    val currentClassId = updatedStudent?.classId ?: stateStudent.classId
+                    try {
+                        val setup = dao.getChildOrgSetup(stateStudent.organizationId)
+                        if (setup != null && setup.feesStructureJson.isNotEmpty()) {
+                            val jsonArray = Json.parseToJsonElement(setup.feesStructureJson).jsonArray
+                            for (element in jsonArray) {
+                                val obj = element.jsonObject
+                                val classIdInFee = obj["organization_class_id"]?.jsonPrimitive?.contentOrNull
+                                    ?: obj["class_id"]?.jsonPrimitive?.contentOrNull
+                                if (classIdInFee == currentClassId) {
+                                    updatedBasicFee += obj["amount"]?.jsonPrimitive?.doubleOrNull ?: 0.0
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("StudentDetails", "Error parsing class basic fee during sync", e)
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        if (updatedStudent != null) {
+                            localStudent = updatedStudent
+                        }
+                        siblings = updatedSibs
+                        feePayments = updatedPayments
+                        additionalFees = updatedAddFees
+                        classBasicFee = updatedBasicFee
+                    }
+                } catch (e: Exception) {
+                    Log.e("StudentDetails", "Background sync failed for studentId: $studentId", e)
+                }
+            }
+        }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-    ) {
-        // App Bar
-
-        Box(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentAlignment = Alignment.Center
-        ) {
-            if (isLoading) {
-                CircularProgressIndicator(color = AppColors.EmeraldGreen, modifier = Modifier.size(36.dp))
-            } else if (errorMsg != null || data == null) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                    modifier = Modifier.padding(24.dp)
-                ) {
-                    Icon(
-                        imageVector = Lucide.CircleAlert,
-                        contentDescription = null,
-                        tint = Color(0xFFEF4444),
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
                     Text(
-                        text = if (isHindi) "लोड करने में असमर्थ" else "Failed to load details",
-                        fontSize = 14.sp,
+                        text = if (isHindi) "छात्र विवरण" else "Student Details",
                         fontWeight = FontWeight.Bold,
+                        fontSize = 20.sp,
                         color = MaterialTheme.colorScheme.onBackground
                     )
-                    Text(
-                        text = errorMsg ?: "Unknown error",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
-                    )
-                }
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Lucide.ArrowLeft,
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
+                )
+            )
+        }
+    ) { paddingValues ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .background(MaterialTheme.colorScheme.background)
+        ) {
+            val student = localStudent
+            if (student == null || isLocalLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.Center),
+                    color = AppColors.EmeraldGreen
+                )
             } else {
-                val info = data!!.getObj("student_info")
-                val additional = data!!.getObj("additional_details")
-                val guardian = data!!.getObj("guardian_info")
-                val bus = data!!.getObj("bus_assignment")
-                val fee = data!!.getObj("fee_summary")
-                val exams = data!!.getArray("exams") ?: JsonArray(emptyList())
-                val siblings = data!!.getArray("siblings") ?: JsonArray(emptyList())
-                val attSummary = data!!.getObj("attendance_summary")
-                val recentAtt = data!!.getArray("recent_attendance") ?: JsonArray(emptyList())
-
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // 1. Header Profile Box
+                    // ═════════════════════════════════════════════════════════════
+                    // 1. Header Profile Card
+                    // ═════════════════════════════════════════════════════════════
                     item {
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
@@ -189,24 +287,25 @@ fun StudentDetailsSubScreen(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Box(
                                         modifier = Modifier
-                                            .size(60.dp)
+                                            .size(70.dp)
                                             .clip(CircleShape)
                                             .background(inputBg),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        val img = info.strVal("image_url", "")
+                                        val img = student.imageUrl ?: ""
                                         if (img.isNotEmpty()) {
                                             AsyncImage(
                                                 model = img,
                                                 contentDescription = null,
-                                                modifier = Modifier.fillMaxSize()
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
                                             )
                                         } else {
                                             Icon(
                                                 imageVector = Lucide.User,
                                                 contentDescription = null,
                                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(28.dp)
+                                                modifier = Modifier.size(32.dp)
                                             )
                                         }
                                     }
@@ -215,13 +314,13 @@ fun StudentDetailsSubScreen(
 
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            text = info.strVal("name", "Student").uppercase(),
+                                            text = student.name.uppercase(),
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = 15.sp,
+                                            fontSize = 16.sp,
                                             color = MaterialTheme.colorScheme.onBackground
                                         )
                                         Text(
-                                            text = "SR: ${info.strVal("sr_number")} | Roll: ${info.strVal("roll_number")}",
+                                            text = "SR: ${student.srNumber} | Roll: ${student.rollNumber ?: "—"}",
                                             fontSize = 11.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = Modifier.padding(top = 2.dp)
@@ -231,11 +330,7 @@ fun StudentDetailsSubScreen(
                                             color = AppColors.EmeraldGreen.copy(alpha = 0.12f),
                                             modifier = Modifier.padding(top = 6.dp)
                                         ) {
-                                            val rawClass = info.strVal("class_name", "N/A")
-                                            val rawSection = info.strVal("section_name", "A")
-                                            val displayClass = if (rawClass == "null" || rawClass.isBlank()) "N/A" else rawClass
-                                            val displaySection = if (rawSection == "null" || rawSection.isBlank()) "A" else rawSection
-                                            val classText = if (displayClass != "N/A") "$displayClass - $displaySection" else "N/A"
+                                            val classText = "${student.className ?: "N/A"} - ${student.sectionName ?: "—"}"
                                             Text(
                                                 text = classText,
                                                 fontSize = 10.sp,
@@ -247,8 +342,8 @@ fun StudentDetailsSubScreen(
                                     }
                                 }
 
-                                val gImage = info.strVal("guardian_image_url", "")
-                                if (gImage.isNotEmpty() || guardian != null) {
+                                // Guardian Info Row
+                                if (!student.guardianName.isNullOrEmpty()) {
                                     Spacer(modifier = Modifier.height(14.dp))
                                     Box(modifier = Modifier.fillMaxWidth().height(0.5.dp).background(borderVal))
                                     Spacer(modifier = Modifier.height(10.dp))
@@ -260,25 +355,45 @@ fun StudentDetailsSubScreen(
                                                 .background(inputBg),
                                             contentAlignment = Alignment.Center
                                         ) {
+                                            val gImage = student.guardianImageUrl ?: ""
                                             if (gImage.isNotEmpty()) {
-                                                AsyncImage(model = gImage, contentDescription = null)
+                                                AsyncImage(
+                                                    model = gImage,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                                )
                                             } else {
-                                                Icon(imageVector = Lucide.Users, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                Icon(
+                                                    imageVector = Lucide.Users,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
                                             }
                                         }
                                         Spacer(modifier = Modifier.width(12.dp))
                                         Column {
-                                            Text(text = guardian.strVal("name", "Guardian"), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
-                                            Text(text = if (isHindi) "पंजीकृत अभिभावक" else "Registered Guardian", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text(
+                                                text = student.guardianName,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onBackground
+                                            )
+                                            Text(
+                                                text = "${student.guardianRelationshipName ?: (if (isHindi) "अभिभावक" else "Guardian")}",
+                                                fontSize = 9.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
                                         }
                                     }
                                 }
 
-                                // Whatsapp and Call actions
+                                // Action Buttons (Call / WhatsApp)
                                 Spacer(modifier = Modifier.height(14.dp))
                                 Box(modifier = Modifier.fillMaxWidth().height(0.5.dp).background(borderVal))
                                 Spacer(modifier = Modifier.height(12.dp))
-                                
+
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -288,11 +403,11 @@ fun StudentDetailsSubScreen(
                                     Button(
                                         onClick = {
                                             val validNumbers = listOfNotNull(
-                                                guardian.strVal("mobile_number").takeIf { it.isNotBlank() && it != "—" && it != "null" }?.let { (if (isHindi) "अभिभावक" else "Guardian") + " ($it)" to it },
-                                                additional.strVal("father_mobile").takeIf { it.isNotBlank() && it != "—" && it != "null" }?.let { (if (isHindi) "पिता" else "Father") + " ($it)" to it },
-                                                additional.strVal("mother_mobile").takeIf { it.isNotBlank() && it != "—" && it != "null" }?.let { (if (isHindi) "माता" else "Mother") + " ($it)" to it }
+                                                student.guardianMobile?.takeIf { it.isNotBlank() && it != "—" && it != "null" }?.let { (if (isHindi) "अभिभावक" else "Guardian") + " ($it)" to it },
+                                                student.fatherMobile?.takeIf { it.isNotBlank() && it != "—" && it != "null" }?.let { (if (isHindi) "पिता" else "Father") + " ($it)" to it },
+                                                student.motherMobile?.takeIf { it.isNotBlank() && it != "—" && it != "null" }?.let { (if (isHindi) "माता" else "Mother") + " ($it)" to it }
                                             ).distinctBy { it.second }
-                                            
+
                                             if (validNumbers.isEmpty()) {
                                                 Toast.makeText(context, if (isHindi) "कोई मोबाइल नंबर उपलब्ध नहीं है" else "No mobile numbers available", Toast.LENGTH_SHORT).show()
                                             } else if (validNumbers.size == 1) {
@@ -321,16 +436,16 @@ fun StudentDetailsSubScreen(
                                             Text(text = if (isHindi) "व्हाट्सएप" else "WhatsApp", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Bold)
                                         }
                                     }
-                                    
+
                                     // Direct Call Button
                                     Button(
                                         onClick = {
                                             val validNumbers = listOfNotNull(
-                                                guardian.strVal("mobile_number").takeIf { it.isNotBlank() && it != "—" && it != "null" }?.let { (if (isHindi) "अभिभावक" else "Guardian") + " ($it)" to it },
-                                                additional.strVal("father_mobile").takeIf { it.isNotBlank() && it != "—" && it != "null" }?.let { (if (isHindi) "पिता" else "Father") + " ($it)" to it },
-                                                additional.strVal("mother_mobile").takeIf { it.isNotBlank() && it != "—" && it != "null" }?.let { (if (isHindi) "माता" else "Mother") + " ($it)" to it }
+                                                student.guardianMobile?.takeIf { it.isNotBlank() && it != "—" && it != "null" }?.let { (if (isHindi) "अभिभावक" else "Guardian") + " ($it)" to it },
+                                                student.fatherMobile?.takeIf { it.isNotBlank() && it != "—" && it != "null" }?.let { (if (isHindi) "पिता" else "Father") + " ($it)" to it },
+                                                student.motherMobile?.takeIf { it.isNotBlank() && it != "—" && it != "null" }?.let { (if (isHindi) "माता" else "Mother") + " ($it)" to it }
                                             ).distinctBy { it.second }
-                                            
+
                                             if (validNumbers.isEmpty()) {
                                                 Toast.makeText(context, if (isHindi) "कोई मोबाइल नंबर उपलब्ध नहीं है" else "No mobile numbers available", Toast.LENGTH_SHORT).show()
                                             } else if (validNumbers.size == 1) {
@@ -363,7 +478,9 @@ fun StudentDetailsSubScreen(
                         }
                     }
 
-                    // 2. Expandable Additional Details
+                    // ═════════════════════════════════════════════════════════════
+                    // 2. Student Profile Details Card (Collapsible)
+                    // ═════════════════════════════════════════════════════════════
                     item {
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
@@ -384,11 +501,11 @@ fun StudentDetailsSubScreen(
                                         color = AppColors.EmeraldGreen
                                     )
                                     IconButton(
-                                        onClick = { isAdditionalExpanded = !isAdditionalExpanded },
+                                        onClick = { isProfileExpanded = !isProfileExpanded },
                                         modifier = Modifier.size(24.dp)
                                     ) {
                                         Icon(
-                                            imageVector = if (isAdditionalExpanded) Lucide.ChevronUp else Lucide.ChevronDown,
+                                            imageVector = if (isProfileExpanded) Lucide.ChevronUp else Lucide.ChevronDown,
                                             contentDescription = null,
                                             tint = AppColors.EmeraldGreen,
                                             modifier = Modifier.size(16.dp)
@@ -399,17 +516,20 @@ fun StudentDetailsSubScreen(
                                 Spacer(modifier = Modifier.height(8.dp))
 
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    DetailRow(label = if (isHindi) "लिंग:" else "Gender:", value = info.strVal("gender"))
-                                    DetailRow(label = if (isHindi) "जन्म तिथि:" else "Date of Birth:", value = info.strVal("date_of_birth"))
-                                    DetailRow(label = if (isHindi) "राष्ट्रीयता:" else "Nationality:", value = additional.strVal("nationality", "Indian"))
-                                    DetailRow(label = if (isHindi) "धर्म:" else "Religion:", value = additional.strVal("religion"))
+                                    DetailRow(label = if (isHindi) "लिंग:" else "Gender:", value = student.gender)
+                                    DetailRow(label = if (isHindi) "जन्म तिथि:" else "Date of Birth:", value = student.dateOfBirth)
+                                    DetailRow(label = if (isHindi) "श्रेणी:" else "Category:", value = student.categoryName)
+                                    DetailRow(label = if (isHindi) "रक्त समूह:" else "Blood Group:", value = student.bloodGroupName)
 
-                                    if (isAdditionalExpanded) {
+                                    if (isProfileExpanded) {
                                         Box(modifier = Modifier.fillMaxWidth().height(0.5.dp).background(borderVal))
-                                        DetailRow(label = if (isHindi) "मातृभाषा:" else "Mother Tongue:", value = additional.strVal("mother_tongue_text"))
-                                        DetailRow(label = if (isHindi) "एकल कन्या:" else "Single Girl Child:", value = if (additional.boolVal("is_single_girl_child")) (if (isHindi) "हाँ" else "Yes") else (if (isHindi) "नहीं" else "No"))
-                                        DetailRow(label = if (isHindi) "पहचान चिन्ह:" else "ID Mark:", value = additional.strVal("identification_mark"))
-                                        DetailRow(label = if (isHindi) "छात्र आधार:" else "Student Aadhaar:", value = additional.strVal("student_aadhar"))
+                                        DetailRow(label = if (isHindi) "मातृभाषा:" else "Mother Tongue:", value = student.motherTongueName)
+                                        DetailRow(label = if (isHindi) "धर्म:" else "Religion:", value = student.religion)
+                                        DetailRow(label = if (isHindi) "राष्ट्रीयता:" else "Nationality:", value = student.nationality)
+                                        DetailRow(label = if (isHindi) "पहचान चिन्ह:" else "ID Mark:", value = student.identificationMark)
+                                        DetailRow(label = if (isHindi) "एकल कन्या:" else "Single Girl Child:", value = if (student.isSingleGirlChild) (if (isHindi) "हाँ" else "Yes") else (if (isHindi) "नहीं" else "No"))
+                                        DetailRow(label = if (isHindi) "जाति प्रमाण पत्र:" else "Caste Cert No:", value = student.casteCertificateNumber)
+                                        DetailRow(label = if (isHindi) "आधार नंबर:" else "Student Aadhaar:", value = student.studentAadhar)
 
                                         Spacer(modifier = Modifier.height(6.dp))
                                         Text(text = if (isHindi) "स्थायी पता" else "Permanent Address", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -419,26 +539,11 @@ fun StudentDetailsSubScreen(
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
                                             Text(
-                                                text = additional.strVal("permanent_address_details"),
+                                                text = "${student.addressDetails ?: "—"} ${student.addressAreaName ?: ""}",
                                                 fontSize = 11.sp,
                                                 color = MaterialTheme.colorScheme.onBackground,
                                                 modifier = Modifier.padding(10.dp)
                                             )
-                                        }
-
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(text = if (isHindi) "बैंक खाता विवरण" else "Bank Account Details", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Column(
-                                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .background(inputBg, RoundedCornerShape(8.dp))
-                                                .padding(10.dp)
-                                        ) {
-                                            DetailRow(label = if (isHindi) "बैंक का नाम:" else "Bank:", value = additional.strVal("bank_name"))
-                                            DetailRow(label = if (isHindi) "खाता संख्या:" else "Account No:", value = additional.strVal("bank_account_number"))
-                                            DetailRow(label = "IFSC:", value = additional.strVal("bank_ifsc"))
-                                            DetailRow(label = if (isHindi) "खाताधारक:" else "Holder:", value = additional.strVal("bank_account_holder"))
                                         }
                                     }
                                 }
@@ -446,8 +551,76 @@ fun StudentDetailsSubScreen(
                         }
                     }
 
-                    // 3. Transport Assignment
+                    // ═════════════════════════════════════════════════════════════
+                    // 3. Parent Details Card (Collapsible)
+                    // ═════════════════════════════════════════════════════════════
                     item {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, borderVal),
+                            color = cardBg
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = if (isHindi) "अभिभावक विवरण" else "Parent Details",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = AppColors.EmeraldGreen
+                                    )
+                                    IconButton(
+                                        onClick = { isParentsExpanded = !isParentsExpanded },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isParentsExpanded) Lucide.ChevronUp else Lucide.ChevronDown,
+                                            contentDescription = null,
+                                            tint = AppColors.EmeraldGreen,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    DetailRow(label = if (isHindi) "पिता का नाम:" else "Father Name:", value = student.fatherName)
+                                    DetailRow(label = if (isHindi) "पिता का मोबाइल:" else "Father Mobile:", value = student.fatherMobile)
+
+                                    if (isParentsExpanded) {
+                                        DetailRow(label = if (isHindi) "पिता की ईमेल:" else "Father Email:", value = student.fatherEmail)
+                                        DetailRow(label = if (isHindi) "पिता की योग्यता:" else "Father Qual:", value = student.fatherQualification)
+                                        DetailRow(label = if (isHindi) "पिता का व्यवसाय:" else "Father Occ:", value = student.fatherOccupation)
+                                        DetailRow(label = if (isHindi) "पिता का आधार:" else "Father Aadhaar:", value = student.parentsAadhaarFather)
+                                        
+                                        Box(modifier = Modifier.fillMaxWidth().height(0.5.dp).background(borderVal))
+                                        
+                                        DetailRow(label = if (isHindi) "माता का नाम:" else "Mother Name:", value = student.motherName)
+                                        DetailRow(label = if (isHindi) "माता का मोबाइल:" else "Mother Mobile:", value = student.motherMobile)
+                                        DetailRow(label = if (isHindi) "माता की ईमेल:" else "Mother Email:", value = student.motherEmail)
+                                        DetailRow(label = if (isHindi) "माता की योग्यता:" else "Mother Qual:", value = student.motherQualification)
+                                        DetailRow(label = if (isHindi) "माता का व्यवसाय:" else "Mother Occ:", value = student.motherOccupation)
+                                        DetailRow(label = if (isHindi) "माता का आधार:" else "Mother Aadhaar:", value = student.parentsAadhaarMother)
+                                        
+                                        Box(modifier = Modifier.fillMaxWidth().height(0.5.dp).background(borderVal))
+                                        
+                                        DetailRow(label = if (isHindi) "पारिवारिक वार्षिक आय:" else "Annual Income:", value = student.familyAnnualIncome?.let { "₹${it.toInt()}" })
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ═════════════════════════════════════════════════════════════
+                    // 4. Transport Stopped stop details
+                    // ═════════════════════════════════════════════════════════════
+                    item {
+                        val busAssignment = state.selectedStudentBusAssignment
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp),
@@ -463,7 +636,7 @@ fun StudentDetailsSubScreen(
                                     modifier = Modifier.padding(bottom = 8.dp)
                                 )
 
-                                if (bus != null && !bus.strVal("bus_number").isNullOrEmpty()) {
+                                if (busAssignment != null && busAssignment.busNumber.isNotEmpty()) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         modifier = Modifier
@@ -484,8 +657,8 @@ fun StudentDetailsSubScreen(
                                         }
                                         Spacer(modifier = Modifier.width(12.dp))
                                         Column {
-                                            Text(text = bus.strVal("bus_number"), fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onBackground)
-                                            Text(text = "${bus.strVal("bus_name")} • Route: ${bus.strVal("route_name")}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text(text = busAssignment.busNumber, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onBackground)
+                                            Text(text = "${if (isHindi) "रूट" else "Route"}: ${busAssignment.routeName ?: "—"} • Stop: ${busAssignment.pickupStop ?: "—"}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     }
                                 } else {
@@ -500,11 +673,125 @@ fun StudentDetailsSubScreen(
                         }
                     }
 
-                    // 4. Fee Summary Ledger
+                    // ═════════════════════════════════════════════════════════════
+                    // 5. Sibling Card (Calculated Locally)
+                    // ═════════════════════════════════════════════════════════════
+                    if (siblings.isNotEmpty()) {
+                        item {
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, borderVal),
+                                color = cardBg
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp)) {
+                                    Text(
+                                        text = if (isHindi) "सहोदर छात्र (Siblings)" else "Siblings",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = AppColors.EmeraldGreen,
+                                        modifier = Modifier.padding(bottom = 8.dp)
+                                    )
+
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        siblings.forEach { sib ->
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .border(0.5.dp, borderVal, RoundedCornerShape(8.dp))
+                                                    .clickable {
+                                                        viewModel.onEvent(InstitutionEvent.LoadStudentProfileDetails(sib.id))
+                                                    }
+                                                    .padding(10.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(32.dp)
+                                                        .clip(CircleShape)
+                                                        .background(inputBg),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    val sibImg = sib.imageUrl ?: ""
+                                                    if (sibImg.isNotEmpty()) {
+                                                        AsyncImage(model = sibImg, contentDescription = null, modifier = Modifier.fillMaxSize())
+                                                    } else {
+                                                        Icon(imageVector = Lucide.User, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(text = sib.name, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onBackground)
+                                                    Text(text = "${sib.className ?: "—"} - ${sib.sectionName ?: "—"}", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                }
+                                                Icon(imageVector = Lucide.ChevronRight, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ═════════════════════════════════════════════════════════════
+                    // 6. Bank Account Card (Collapsible)
+                    // ═════════════════════════════════════════════════════════════
                     item {
-                        val totalExp = fee.doubleVal("total_expected")
-                        val totalPaid = fee.doubleVal("total_paid")
-                        val totalPending = fee.doubleVal("total_pending")
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, borderVal),
+                            color = cardBg
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = if (isHindi) "बैंक विवरण" else "Bank Account Details",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = AppColors.EmeraldGreen
+                                    )
+                                    IconButton(
+                                        onClick = { isBankExpanded = !isBankExpanded },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isBankExpanded) Lucide.ChevronUp else Lucide.ChevronDown,
+                                            contentDescription = null,
+                                            tint = AppColors.EmeraldGreen,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    DetailRow(label = if (isHindi) "बैंक का नाम:" else "Bank Name:", value = student.bankName)
+                                    DetailRow(label = if (isHindi) "खाता संख्या:" else "Account Number:", value = student.bankAccountNumber)
+
+                                    if (isBankExpanded) {
+                                        DetailRow(label = if (isHindi) "शाखा (Branch):" else "Branch Name:", value = student.bankBranch)
+                                        DetailRow(label = "IFSC:", value = student.bankIfsc)
+                                        DetailRow(label = if (isHindi) "खाताधारक:" else "Holder Name:", value = student.bankAccountHolder)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ═════════════════════════════════════════════════════════════
+                    // 7. Fee Summary Ledger
+                    // ═════════════════════════════════════════════════════════════
+                    item {
+                        val totalAddFee = additionalFees.sumOf { it.amount }
+                        val totalExpFee = classBasicFee + totalAddFee
+                        val totalPaidFee = feePayments.sumOf { it.amountPaid }
+                        val totalPendingFee = totalExpFee - totalPaidFee
 
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
@@ -514,7 +801,7 @@ fun StudentDetailsSubScreen(
                         ) {
                             Column(modifier = Modifier.padding(14.dp)) {
                                 Text(
-                                    text = if (isHindi) "शुल्क विवरण" else "Fee Ledger Summary",
+                                    text = if (isHindi) "शुल्क सारांश विवरण" else "Fee Summary Ledger",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp,
                                     color = AppColors.EmeraldGreen,
@@ -534,7 +821,7 @@ fun StudentDetailsSubScreen(
                                         horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
                                         Text(text = if (isHindi) "कुल अपेक्षित" else "Expected", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Text(text = "₹${totalExp.toInt()}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+                                        Text(text = "₹${totalExpFee.toInt()}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
                                     }
                                     // Paid
                                     Column(
@@ -545,13 +832,13 @@ fun StudentDetailsSubScreen(
                                             .padding(10.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
-                                        Text(text = if (isHindi) "जमा शुल्क" else "Collected", fontSize = 9.sp, color = AppColors.EmeraldGreen)
-                                        Text(text = "₹${totalPaid.toInt()}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = AppColors.EmeraldGreen)
+                                        Text(text = if (isHindi) "जमा शुल्क" else "Paid", fontSize = 9.sp, color = AppColors.EmeraldGreen)
+                                        Text(text = "₹${totalPaidFee.toInt()}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = AppColors.EmeraldGreen)
                                     }
                                     // Pending
-                                    val pendingColor = if (totalPending > 0) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurfaceVariant
-                                    val pendingBg = if (totalPending > 0) Color(0xFFEF4444).copy(alpha = 0.08f) else inputBg
-                                    val pendingBorder = if (totalPending > 0) Color(0xFFEF4444).copy(alpha = 0.2f) else borderVal
+                                    val pendingColor = if (totalPendingFee > 0) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    val pendingBg = if (totalPendingFee > 0) Color(0xFFEF4444).copy(alpha = 0.08f) else inputBg
+                                    val pendingBorder = if (totalPendingFee > 0) Color(0xFFEF4444).copy(alpha = 0.2f) else borderVal
                                     Column(
                                         modifier = Modifier
                                             .weight(1f)
@@ -560,20 +847,20 @@ fun StudentDetailsSubScreen(
                                             .padding(10.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
-                                        Text(text = if (isHindi) "लंबित" else "Pending", fontSize = 9.sp, color = pendingColor)
-                                        Text(text = "₹${totalPending.toInt()}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = pendingColor)
+                                        Text(text = if (isHindi) "बकाया" else "Pending", fontSize = 9.sp, color = pendingColor)
+                                        Text(text = "₹${totalPendingFee.toInt()}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = pendingColor)
                                     }
                                 }
 
-                                if (totalExp > 0) {
+                                if (totalExpFee > 0) {
                                     Spacer(modifier = Modifier.height(10.dp))
-                                    val ratio = (totalPaid / totalExp).toFloat()
+                                    val ratio = (totalPaidFee / totalExpFee).toFloat()
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(text = if (isHindi) "संग्रह अनुपात" else "Collection Ratio", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(text = if (isHindi) "फीस संग्रह अनुपात" else "Collection Ratio", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         Text(text = "${(ratio * 100).toInt()}%", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AppColors.EmeraldGreen)
                                     }
                                     Spacer(modifier = Modifier.height(4.dp))
@@ -588,7 +875,9 @@ fun StudentDetailsSubScreen(
                         }
                     }
 
-                    // 5. Assigned Examinations (Accordion Subjects & Marks)
+                    // ═════════════════════════════════════════════════════════════
+                    // 8. Exam Marks Accordion (Grouped by Exam ID)
+                    // ═════════════════════════════════════════════════════════════
                     item {
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
@@ -598,20 +887,22 @@ fun StudentDetailsSubScreen(
                         ) {
                             Column(modifier = Modifier.padding(14.dp)) {
                                 Text(
-                                    text = if (isHindi) "परीक्षा सूची (विवरण हेतु क्लिक करें)" else "Examinations (Click for Marks)",
+                                    text = if (isHindi) " परीक्षा परिणाम सूची" else "Examinations (Click for Marks)",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp,
                                     color = AppColors.EmeraldGreen,
                                     modifier = Modifier.padding(bottom = 8.dp)
                                 )
 
-                                if (exams.isNotEmpty()) {
+                                if (examMarks.isNotEmpty()) {
+                                    val groupedMarks = examMarks.groupBy { it.examId }
                                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        exams.forEach { examEl ->
-                                            val exam = examEl.jsonObject
-                                            val examId = exam["id"]?.jsonPrimitive?.contentOrNull ?: ""
+                                        groupedMarks.forEach { (examId, marks) ->
                                             val isExpanded = expandedExamId == examId
-                                            val subjects = exam["subjects"]?.jsonArray ?: JsonArray(emptyList())
+                                            // Lookup exam name from local_organization_exams if null in marks
+                                            val examName = marks.firstOrNull()?.examName
+                                                ?: orgExams.firstOrNull { it.id == examId }?.name
+                                                ?: "Exam"
 
                                             Column(
                                                 modifier = Modifier
@@ -619,7 +910,7 @@ fun StudentDetailsSubScreen(
                                                     .border(0.5.dp, borderVal, RoundedCornerShape(8.dp))
                                                     .clip(RoundedCornerShape(8.dp))
                                             ) {
-                                                // Trigger Row
+                                                // Exam Row Trigger
                                                 Row(
                                                     modifier = Modifier
                                                         .fillMaxWidth()
@@ -628,18 +919,16 @@ fun StudentDetailsSubScreen(
                                                     horizontalArrangement = Arrangement.SpaceBetween,
                                                     verticalAlignment = Alignment.CenterVertically
                                                 ) {
-                                                    Column(modifier = Modifier.weight(1f)) {
-                                                        Text(text = exam.strVal("name", "Exam"), fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onBackground)
-                                                        Text(text = exam.strVal("exam_type_name", "Regular"), fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                    }
-                                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        Text(text = exam.strVal("start_date"), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                        Spacer(modifier = Modifier.width(6.dp))
-                                                        Icon(imageVector = if (isExpanded) Lucide.ChevronUp else Lucide.ChevronDown, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                    }
+                                                    Text(text = examName, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onBackground)
+                                                    Icon(
+                                                        imageVector = if (isExpanded) Lucide.ChevronUp else Lucide.ChevronDown,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(14.dp),
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
                                                 }
 
-                                                // Subjects detail table
+                                                // Subject Marks details
                                                 if (isExpanded) {
                                                     Column(
                                                         modifier = Modifier
@@ -648,23 +937,22 @@ fun StudentDetailsSubScreen(
                                                             .padding(10.dp),
                                                         verticalArrangement = Arrangement.spacedBy(6.dp)
                                                     ) {
-                                                        // Headers
+                                                        // Table Header
                                                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                                             Text(text = if (isHindi) "विषय" else "Subject", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                            Text(text = if (isHindi) "अंक" else "Marks", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                            Text(text = if (isHindi) "अंक (Marks)" else "Marks", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                                             Text(text = if (isHindi) "स्थिति" else "Status", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                                         }
                                                         Box(modifier = Modifier.fillMaxWidth().height(0.5.dp).background(borderVal))
 
-                                                        subjects.forEach { subEl ->
-                                                            val sub = subEl.jsonObject
-                                                            val hasMarks = sub["obtained_marks"]?.jsonPrimitive?.contentOrNull != null
-                                                            val obt = sub.doubleVal("obtained_marks")
-                                                            val max = sub.doubleVal("max_marks", 100.0)
-                                                            val min = sub.doubleVal("minimum_passing_marks", 33.0)
-                                                            val isAbs = sub.boolVal("is_absent")
-                                                            val isMed = sub.boolVal("is_medical_leave")
-                                                            val isPassed = hasMarks && obt >= min
+                                                        marks.forEach { mark ->
+                                                            val obt = mark.obtainedMarks
+                                                            val max = mark.maxMarks ?: 100.0
+                                                            val min = mark.minimumPassingMarks ?: 33.0
+                                                            val isAbs = mark.isAbsent
+                                                            val isMed = mark.isMedicalLeave
+                                                            val hasMarks = obt != null
+                                                            val isPassed = hasMarks && obt!! >= min
 
                                                             val statusText = when {
                                                                 isAbs -> if (isHindi) "अनुपस्थित" else "Absent"
@@ -684,9 +972,10 @@ fun StudentDetailsSubScreen(
                                                                 horizontalArrangement = Arrangement.SpaceBetween,
                                                                 verticalAlignment = Alignment.CenterVertically
                                                             ) {
-                                                                Text(text = sub.strVal("subject_name"), fontSize = 11.sp, color = MaterialTheme.colorScheme.onBackground)
+                                                                val resolvedSubjectName = null
+                                                                Text(text = resolvedSubjectName ?: "—", fontSize = 11.sp, color = MaterialTheme.colorScheme.onBackground)
                                                                 Text(
-                                                                    text = if (isAbs || isMed) "—" else "${obt.toInt()}/${max.toInt()}",
+                                                                    text = if (isAbs || isMed) "—" else "${obt?.toInt() ?: "—"}/${max.toInt()}",
                                                                     fontSize = 11.sp,
                                                                     fontWeight = FontWeight.Bold,
                                                                     color = MaterialTheme.colorScheme.onBackground
@@ -713,7 +1002,7 @@ fun StudentDetailsSubScreen(
                                     }
                                 } else {
                                     Text(
-                                        text = if (isHindi) "कोई परीक्षा निर्धारित नहीं है" else "No exams scheduled.",
+                                        text = if (isHindi) "कोई परीक्षा डेटा उपलब्ध नहीं है" else "No exam marks recorded.",
                                         fontSize = 12.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         style = androidx.compose.ui.text.TextStyle(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
@@ -723,132 +1012,10 @@ fun StudentDetailsSubScreen(
                         }
                     }
 
-                    // 6. Parents Info
+                    // ═════════════════════════════════════════════════════════════
+                    // 9. Attendance Summary & logs
+                    // ═════════════════════════════════════════════════════════════
                     item {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, borderVal),
-                            color = cardBg
-                        ) {
-                            Column(modifier = Modifier.padding(14.dp)) {
-                                Text(
-                                    text = if (isHindi) "माता-पिता का विवरण" else "Parents Information",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    color = AppColors.EmeraldGreen,
-                                    modifier = Modifier.padding(bottom = 10.dp)
-                                )
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    // Father
-                                    Column(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .background(inputBg, RoundedCornerShape(8.dp))
-                                            .padding(10.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Text(text = if (isHindi) "पिता" else "Father", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = AppColors.EmeraldGreen)
-                                        Text(text = additional.strVal("father_name"), fontWeight = FontWeight.Bold, fontSize = 11.sp, color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text(text = additional.strVal("father_mobile"), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Text(text = additional.strVal("father_occupation"), fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    }
-                                    // Mother
-                                    Column(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .background(inputBg, RoundedCornerShape(8.dp))
-                                            .padding(10.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Text(text = if (isHindi) "माता" else "Mother", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = AppColors.EmeraldGreen)
-                                        Text(text = additional.strVal("mother_name"), fontWeight = FontWeight.Bold, fontSize = 11.sp, color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text(text = additional.strVal("mother_mobile"), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Text(text = additional.strVal("mother_occupation"), fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // 7. Siblings Details (Dynamic click navigation reload)
-                    item {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, borderVal),
-                            color = cardBg
-                        ) {
-                            Column(modifier = Modifier.padding(14.dp)) {
-                                Text(
-                                    text = if (isHindi) "सहोदर (भाई/बहन) विवरण" else "Siblings (Brother/Sister) Details",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    color = AppColors.EmeraldGreen,
-                                    modifier = Modifier.padding(bottom = 8.dp)
-                                )
-
-                                if (siblings.isNotEmpty()) {
-                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        siblings.forEach { sibEl ->
-                                            val sib = sibEl.jsonObject
-                                            val sibId = sib["id"]?.jsonPrimitive?.contentOrNull ?: ""
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .clickable { currentStudentId = sibId } // Switch profile dynamically!
-                                                    .background(inputBg, RoundedCornerShape(8.dp))
-                                                    .padding(10.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(32.dp)
-                                                        .clip(CircleShape)
-                                                        .background(borderVal),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    val sImg = sib.strVal("image_url", "")
-                                                    if (sImg.isNotEmpty()) {
-                                                        AsyncImage(model = sImg, contentDescription = null)
-                                                    } else {
-                                                        Icon(imageVector = Lucide.User, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
-                                                    }
-                                                }
-                                                Spacer(modifier = Modifier.width(12.dp))
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text(text = sib.strVal("name"), fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onBackground)
-                                                    val cls = sib.strVal("class_name").takeIf { it != "null" && it.isNotBlank() } ?: "N/A"
-                                                    Text(text = "Class: $cls • SR: ${sib.strVal("sr_number")}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                }
-                                                Icon(imageVector = Lucide.ChevronRight, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    Text(
-                                        text = if (isHindi) "डेटाबेस में कोई सहोदर लिंक नहीं है" else "No siblings linked.",
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = androidx.compose.ui.text.TextStyle(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // 8. Attendance Overview & Logs
-                    item {
-                        val present = attSummary.intVal("present_count")
-                        val absent = attSummary.intVal("absent_count")
-                        val leave = attSummary.intVal("leave_count")
-                        val totalDays = attSummary.intVal("total_days")
-                        val attPercent = if (totalDays > 0) ((present.toFloat() / totalDays) * 100).toInt() else 0
-
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp),
@@ -862,7 +1029,7 @@ fun StudentDetailsSubScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = if (isHindi) "उपस्थिति इतिहास" else "Attendance History Ledger",
+                                        text = if (isHindi) "उपस्थिति सारांश (Attendance)" else "Attendance Summary",
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 13.sp,
                                         color = AppColors.EmeraldGreen
@@ -882,78 +1049,76 @@ fun StudentDetailsSubScreen(
 
                                 Spacer(modifier = Modifier.height(10.dp))
 
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(48.dp)
-                                            .border(3.dp, AppColors.EmeraldGreen.copy(alpha = 0.2f), CircleShape)
-                                            .padding(3.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(text = "$attPercent%", fontSize = 11.sp, fontWeight = FontWeight.Black, color = AppColors.EmeraldGreen)
+                                val totalDays = attendanceList.size
+                                val presentDays = attendanceList.count { it.status.equals("Present", ignoreCase = true) }
+                                val attRatio = if (totalDays > 0) (presentDays.toFloat() / totalDays.toFloat()) else 0.0f
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(text = if (isHindi) "कुल उपस्थिति" else "Total Attendance", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(text = "$presentDays / $totalDays ${if (isHindi) "दिन" else "days"}", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
                                     }
-                                    Spacer(modifier = Modifier.width(16.dp))
-                                    Row(
-                                        modifier = Modifier.weight(1f),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = AppColors.EmeraldGreen.copy(alpha = 0.12f)
                                     ) {
-                                        Column(modifier = Modifier.weight(1f).background(inputBg, RoundedCornerShape(6.dp)).padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Text(text = if (isHindi) "उपस्थित" else "Present", fontSize = 8.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            Text(text = present.toString(), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AppColors.EmeraldGreen)
-                                        }
-                                        Column(modifier = Modifier.weight(1f).background(inputBg, RoundedCornerShape(6.dp)).padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Text(text = if (isHindi) "अनुपस्थित" else "Absent", fontSize = 8.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            Text(text = absent.toString(), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFEF4444))
-                                        }
-                                        Column(modifier = Modifier.weight(1f).background(inputBg, RoundedCornerShape(6.dp)).padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Text(text = if (isHindi) "अवकाश" else "Leaves", fontSize = 8.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            Text(text = leave.toString(), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFF59E0B))
-                                        }
+                                        Text(
+                                            text = "${(attRatio * 100).toInt()}%",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = AppColors.EmeraldGreen,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                        )
                                     }
                                 }
 
-                                if (isAttendanceExpanded) {
+                                if (isAttendanceExpanded && attendanceList.isNotEmpty()) {
                                     Spacer(modifier = Modifier.height(12.dp))
                                     Box(modifier = Modifier.fillMaxWidth().height(0.5.dp).background(borderVal))
                                     Spacer(modifier = Modifier.height(10.dp))
 
-                                    if (recentAtt.isNotEmpty()) {
-                                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            recentAtt.forEach { logEl ->
-                                                val log = logEl.jsonObject
-                                                val status = log.strVal("status")
-                                                val statusColor = when (status) {
-                                                    "Present" -> AppColors.EmeraldGreen
-                                                    "Absent" -> Color(0xFFEF4444)
-                                                    "Late", "Half Day" -> Color(0xFFF59E0B)
-                                                    else -> Color(0xFF8E8E93)
-                                                }
+                                    Text(
+                                        text = if (isHindi) "हालिया उपस्थिति इतिहास" else "Recent Attendance Logs",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(bottom = 6.dp)
+                                    )
 
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .background(inputBg, RoundedCornerShape(6.dp))
-                                                        .padding(vertical = 8.dp, horizontal = 10.dp),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                    verticalAlignment = Alignment.CenterVertically
+                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        // Display up to 10 logs
+                                        attendanceList.take(10).forEach { log ->
+                                            val isPresent = log.status.equals("Present", ignoreCase = true)
+                                            val statusCol = if (isPresent) AppColors.EmeraldGreen else Color(0xFFEF4444)
+
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .background(inputBg, RoundedCornerShape(6.dp))
+                                                    .padding(8.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(text = log.attendanceDate, fontSize = 11.sp, color = MaterialTheme.colorScheme.onBackground)
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = statusCol.copy(alpha = 0.12f)
                                                 ) {
-                                                    Text(text = log.strVal("date"), fontSize = 11.sp, color = MaterialTheme.colorScheme.onBackground)
-                                                    val remarks = log.strVal("remarks", "")
-                                                    if (remarks.isNotEmpty()) {
-                                                        Text(text = "($remarks)", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                                                    }
-                                                    Surface(
-                                                        shape = RoundedCornerShape(4.dp),
-                                                        color = statusColor.copy(alpha = 0.12f),
-                                                        border = androidx.compose.foundation.BorderStroke(0.5.dp, statusColor.copy(alpha = 0.3f))
-                                                    ) {
-                                                        Text(text = status, fontSize = 8.sp, fontWeight = FontWeight.Bold, color = statusColor, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
-                                                    }
+                                                    Text(
+                                                        text = if (isPresent) (if (isHindi) "उपस्थित" else "Present") else (if (isHindi) "अनुपस्थित" else "Absent"),
+                                                        fontSize = 8.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = statusCol,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
                                                 }
                                             }
                                         }
-                                    } else {
-                                        Text(text = if (isHindi) "कोई उपस्थिति रिकॉर्ड नहीं है" else "No attendance logs found.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
                                     }
                                 }
                             }
@@ -964,79 +1129,63 @@ fun StudentDetailsSubScreen(
         }
     }
 
-    if (showNumberSelector && pendingActionType != null) {
-        val actionLabel = if (pendingActionType == "call") {
-            if (isHindi) "कॉल करने के लिए नंबर चुनें" else "Select number to call"
-        } else {
-            if (isHindi) "व्हाट्सएप चैट के लिए नंबर चुनें" else "Select number for WhatsApp"
-        }
-        
+    // ═════════════════════════════════════════════════════════════════════════
+    // MULTIPLE CONTACT SELECTOR MODAL (If student has multiple contact numbers)
+    // ═════════════════════════════════════════════════════════════════════════
+    if (showNumberSelector) {
         AlertDialog(
-            onDismissRequest = { 
-                showNumberSelector = false
-                pendingActionType = null
+            onDismissRequest = { showNumberSelector = false },
+            title = {
+                Text(
+                    text = if (isHindi) "नंबर चुनें" else "Choose Contact Number",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
             },
-            title = { Text(actionLabel, fontSize = 16.sp, fontWeight = FontWeight.Bold) },
             text = {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    actionNumbers.forEach { pair ->
-                        Surface(
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    actionNumbers.forEach { (label, number) ->
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .background(inputBg, RoundedCornerShape(8.dp))
                                 .clickable {
                                     showNumberSelector = false
-                                    val number = pair.second
-                                    if (pendingActionType == "call") {
-                                        val intent = Intent(Intent.ACTION_DIAL).apply {
-                                            this.data = Uri.parse("tel:$number")
-                                        }
-                                        context.startActivity(intent)
-                                    } else {
+                                    if (pendingActionType == "whatsapp") {
                                         val formatted = getWhatsAppNumber(number)
                                         val intent = Intent(Intent.ACTION_VIEW).apply {
                                             this.data = Uri.parse("https://api.whatsapp.com/send?phone=$formatted")
                                         }
                                         context.startActivity(intent)
+                                    } else {
+                                        val intent = Intent(Intent.ACTION_DIAL).apply {
+                                            this.data = Uri.parse("tel:$number")
+                                        }
+                                        context.startActivity(intent)
                                     }
-                                    pendingActionType = null
                                 }
-                                .border(0.5.dp, borderVal, RoundedCornerShape(8.dp)),
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (isDark) Color(0xFF2C2C2E) else Color(0xFFF2F2F7)
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 12.dp, horizontal = 16.dp)
-                            ) {
-                                Text(
-                                    text = pair.first, 
-                                    fontSize = 13.sp, 
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onBackground
-                                )
-                                Icon(
-                                    imageVector = if (pendingActionType == "call") Lucide.Phone else Lucide.MessageSquareCode,
-                                    contentDescription = null,
-                                    tint = AppColors.EmeraldGreen,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
+                            Icon(
+                                imageVector = if (pendingActionType == "whatsapp") Lucide.MessageSquareCode else Lucide.Phone,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = AppColors.EmeraldGreen
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = label,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
                         }
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    showNumberSelector = false
-                    pendingActionType = null
-                }) {
-                    Text(if (isHindi) "बंद करें" else "Cancel", color = Color.Gray)
+                TextButton(onClick = { showNumberSelector = false }) {
+                    Text(text = if (isHindi) "बंद करें" else "Cancel", color = AppColors.EmeraldGreen)
                 }
             }
         )
@@ -1044,15 +1193,27 @@ fun StudentDetailsSubScreen(
 }
 
 @Composable
-fun DetailRow(label: String, value: String) {
+fun DetailRow(label: String, value: String?) {
+    val displayValue = if (value.isNullOrBlank() || value == "null") "—" else value
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp),
+            .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(text = value, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.Normal
+        )
+        Text(
+            text = displayValue,
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.End
+        )
     }
 }

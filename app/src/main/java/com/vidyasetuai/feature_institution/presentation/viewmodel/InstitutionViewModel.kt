@@ -28,6 +28,7 @@ import com.vidyasetuai.feature_institution.domain.model.GlobalStaffRole
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 
 class InstitutionViewModel(
     val repository: InstitutionRepository,
@@ -120,7 +121,7 @@ class InstitutionViewModel(
                 loadStudentBuses(event.studentIds)
             }
             is InstitutionEvent.LoadBusLiveLocation -> {
-                loadBusLiveLocation(event.busId)
+                startBusLocationTracking(event.busId)
             }
             is InstitutionEvent.ToggleDriverTrip -> {
                 toggleDriverTrip(event.busId, event.parentOrgId, event.sessionId)
@@ -258,6 +259,9 @@ class InstitutionViewModel(
                 val workspaceId = _uiState.value.activeWorkspace?.id
                 _uiState.value = _uiState.value.copy(activeSubScreen = event.subScreen)
                 saveActiveSubScreen(workspaceId, event.subScreen)
+                if (event.subScreen != "live_bus") {
+                    stopBusLocationTracking()
+                }
             }
             is InstitutionEvent.LoadStudentProfileDetails -> {
                 loadStudentProfileDetails(event.studentId)
@@ -309,6 +313,37 @@ class InstitutionViewModel(
                 )
             }
 
+            // 1. Room DB से तत्काल लोड करें (Instant local render)
+            repository.getCachedWorkspaces().onSuccess { cachedList ->
+                if (cachedList.isNotEmpty()) {
+                    val active = if (navTarget == "driver_trip") {
+                        cachedList.find { it.role == "Driver" } ?: cachedList.find { it.isActive } ?: cachedList.firstOrNull()
+                    } else {
+                        cachedList.find { it.isActive } ?: cachedList.firstOrNull()
+                    }
+                    val restoredSubScreen = if (navTarget == "driver_trip" && active?.role == "Driver") {
+                        "driver_student_attendance"
+                    } else if (!alreadyLoaded) {
+                        restoreActiveSubScreen(active?.id)
+                    } else {
+                        _uiState.value.activeSubScreen
+                    }
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        workspaces = cachedList,
+                        activeWorkspace = active,
+                        activeSubScreen = restoredSubScreen
+                    )
+                    if (active != null) {
+                        if (navTarget == "driver_trip" && active.role == "Driver") {
+                            repository.setActiveWorkspace(active.id)
+                        }
+                        loadWorkspaceData(userId, active, silent = true)
+                    }
+                }
+            }
+
+            // 2. सुपबेस से बैकग्राउंड में साइलेंट रिफ्रेश करें (Silent update in background)
             repository.getWorkspaces(userId).fold(
                 onSuccess = { list ->
                     val active = if (navTarget == "driver_trip") {
@@ -316,7 +351,6 @@ class InstitutionViewModel(
                     } else {
                         list.find { it.isActive } ?: list.firstOrNull()
                     }
-                    // Restore saved activeSubScreen from SharedPreferences
                     val restoredSubScreen = if (navTarget == "driver_trip" && active?.role == "Driver") {
                         "driver_student_attendance"
                     } else if (!alreadyLoaded) {
@@ -334,14 +368,13 @@ class InstitutionViewModel(
                         if (navTarget == "driver_trip" && active.role == "Driver") {
                             repository.setActiveWorkspace(active.id)
                         }
-                        loadWorkspaceData(userId, active, silent = alreadyLoaded)
+                        loadWorkspaceData(userId, active, silent = true)
                         triggerWorkspaceSync(userId, active)
                     }
                 },
                 onFailure = { e ->
                     _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        errorMessage = e.message
+                        isLoading = false
                     )
                 }
             )
@@ -391,6 +424,7 @@ class InstitutionViewModel(
             // Load role-specific data
             if (workspace.role == "Guardian") {
                 loadGuardianStudents(workspace.id)
+                loadAllBuses(workspace.parentOrgId)
             } else if (workspace.role == "Student") {
                 viewModelScope.launch {
                     repository.getStudentLinkByUserId(userId).onSuccess { link ->
@@ -398,6 +432,8 @@ class InstitutionViewModel(
                         if (studentId.isNotEmpty()) {
                             loadFeePayments(listOf(studentId))
                             loadStudentProfileDetails(studentId)
+                            loadStudentBuses(listOf(studentId))
+                            loadAllBuses(workspace.parentOrgId)
                         } else {
                             loadFeePayments(listOf("student_mock_id_1"))
                         }
@@ -417,6 +453,7 @@ class InstitutionViewModel(
                 if (isAdminRole) {
                     loadAttendanceDropdowns(workspace.parentOrgId, silent = silent)
                     loadAdminFinanceStats(workspace.parentOrgId)
+                    loadAllBuses(workspace.parentOrgId)
                 }
 
                 if (workspace.role == "Driver") {
@@ -436,9 +473,11 @@ class InstitutionViewModel(
     }
 
     private fun loadGuardianStudents(guardianLinkId: String) {
+        android.util.Log.d("BusTracking", "loadGuardianStudents called for guardianLinkId: $guardianLinkId")
         viewModelScope.launch {
             repository.getGuardianStudents(guardianLinkId).fold(
                 onSuccess = { list ->
+                    android.util.Log.d("BusTracking", "loadGuardianStudents success, student count: ${list.size}, list: $list")
                     _uiState.value = _uiState.value.copy(
                         guardianStudents = list
                     )
@@ -450,6 +489,7 @@ class InstitutionViewModel(
                     }
                 },
                 onFailure = { e ->
+                    android.util.Log.e("BusTracking", "loadGuardianStudents failure", e)
                     _uiState.value = _uiState.value.copy(errorMessage = e.message)
                 }
             )
@@ -462,14 +502,92 @@ class InstitutionViewModel(
                 val entities = list.map {
                     com.vidyasetuai.feature_institution.data.local.entity.LocalStudentEntity(
                         id = it.id,
+                        organizationId = "",
+                        activeSessionId = "",
                         name = it.name,
-                        srNumber = it.sr_number,
-                        rollNumber = it.roll_number,
-                        className = it.class_name,
-                        sectionName = it.section_name,
+                        gender = null,
+                        srNumber = it.sr_number ?: "",
+                        admissionDate = "",
+                        dateOfBirth = "",
+                        enrollmentNumber = null,
+                        imageUrl = it.image_url,
+                        imageLocalPath = null,
+                        guardianImageUrl = null,
+                        guardianImageLocalPath = null,
+                        isActive = true,
+                        isDeleted = false,
+                        guardianId = "",
                         guardianName = it.guardian_name,
                         guardianMobile = it.guardian_mobile,
-                        imageUrl = it.image_url
+                        guardianRelationshipName = null,
+                        categoryId = null,
+                        categoryName = null,
+                        bloodGroupId = null,
+                        bloodGroupName = null,
+                        studentStatusId = null,
+                        studentStatusName = null,
+                        addressAreaId = null,
+                        addressAreaName = null,
+                        addressDetails = null,
+                        classId = null,
+                        className = it.class_name,
+                        sectionId = null,
+                        sectionName = it.section_name,
+                        rollNumber = it.roll_number,
+                        qrIdentityId = null,
+                        qrTokenHash = null,
+                        qrStatus = null,
+                        qrExpiryDate = null,
+                        idCardId = null,
+                        cardNumber = null,
+                        idCardStatus = null,
+                        idCardReissueReason = null,
+                        homeLatitude = null,
+                        homeLongitude = null,
+                        motherTongueId = null,
+                        motherTongueName = null,
+                        religion = null,
+                        nationality = "Indian",
+                        identificationMark = null,
+                        isSingleGirlChild = false,
+                        casteCertificateNumber = null,
+                        fatherName = null,
+                        fatherMobile = null,
+                        fatherEmail = null,
+                        fatherQualification = null,
+                        fatherOccupation = null,
+                        parentsAadhaarFather = null,
+                        motherName = null,
+                        motherMobile = null,
+                        motherEmail = null,
+                        motherQualification = null,
+                        motherOccupation = null,
+                        parentsAadhaarMother = null,
+                        familyAnnualIncome = null,
+                        permanentAddressDetails = null,
+                        permanentAddressArea = null,
+                        permanentAddressAreaId = null,
+                        permanentAreaName = null,
+                        previousSchoolName = null,
+                        previousClass = null,
+                        previousBoard = null,
+                        tcNumber = null,
+                        tcDate = null,
+                        previousMarks = null,
+                        height = null,
+                        weight = null,
+                        medicalConditions = null,
+                        regularMedications = null,
+                        emergencyContactName = null,
+                        emergencyContactPhone = null,
+                        bankAccountNumber = null,
+                        bankName = null,
+                        bankBranch = null,
+                        bankIfsc = null,
+                        bankAccountHolder = null,
+                        studentAadhar = null,
+                        lastSyncedAt = 0L,
+                        syncState = "SYNCED"
                     )
                 }
                 _uiState.value = _uiState.value.copy(
@@ -551,17 +669,65 @@ class InstitutionViewModel(
     }
 
     private fun loadStudentBuses(studentIds: List<String>) {
+        android.util.Log.d("BusTracking", "loadStudentBuses called in ViewModel for studentIds: $studentIds")
         viewModelScope.launch {
             repository.getStudentBusAssignments(studentIds).onSuccess { list ->
+                android.util.Log.d("BusTracking", "loadStudentBuses success, size: ${list.size}, contents: $list")
                 _uiState.value = _uiState.value.copy(studentBuses = list)
+                list.map { it.busId }.distinct().filter { it.isNotEmpty() }.forEach { busId ->
+                    android.util.Log.d("BusTracking", "Loading route for busId: $busId")
+                    loadBusRoute(busId)
+                }
+            }.onFailure { err ->
+                android.util.Log.e("BusTracking", "loadStudentBuses failure", err)
             }
         }
     }
 
-    private fun loadBusLiveLocation(busId: String) {
+    private fun loadAllBuses(parentOrgId: String) {
         viewModelScope.launch {
-            repository.getBusLiveLocation(busId).onSuccess { location ->
-                _uiState.value = _uiState.value.copy(activeBusLocation = location)
+            repository.getParentBuses(parentOrgId, forceRefresh = true).onSuccess { list ->
+                _uiState.value = _uiState.value.copy(allBuses = list)
+                list.map { it.id }.distinct().filter { it.isNotEmpty() }.forEach { busId ->
+                    loadBusRoute(busId)
+                }
+            }
+        }
+    }
+
+    private var trackingJob: Job? = null
+
+    fun startBusLocationTracking(busId: String) {
+        trackingJob?.cancel()
+        _uiState.value = _uiState.value.copy(isTrackingActive = true)
+        
+        loadBusRoute(busId)
+
+        trackingJob = viewModelScope.launch {
+            while (isActive) {
+                repository.getBusLiveLocation(busId).onSuccess { location ->
+                    _uiState.value = _uiState.value.copy(activeBusLocation = location)
+                }
+                delay(5000)
+            }
+        }
+    }
+
+    fun stopBusLocationTracking() {
+        trackingJob?.cancel()
+        trackingJob = null
+        _uiState.value = _uiState.value.copy(
+            isTrackingActive = false,
+            activeBusLocation = null
+        )
+    }
+
+    fun loadBusRoute(busId: String) {
+        viewModelScope.launch {
+            repository.getBusRoute(busId, forceRefresh = true).onSuccess { routesList ->
+                val currentRoutes = _uiState.value.activeBusRoutes.toMutableMap()
+                currentRoutes[busId] = routesList
+                _uiState.value = _uiState.value.copy(activeBusRoutes = currentRoutes)
             }
         }
     }

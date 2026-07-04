@@ -2,6 +2,8 @@ package com.vidyasetuai.feature_profile.presentation.state
 
 import com.vidyasetuai.feature_profile.domain.model.ContributorVerification
 import com.vidyasetuai.feature_profile.domain.model.UserProfile
+import com.vidyasetuai.feature_case_study.domain.model.CaseStudy
+import com.vidyasetuai.feature_feed.domain.model.Experience
 
 data class ProfileUiState(
     val isLoading: Boolean = false,
@@ -11,5 +13,8 @@ data class ProfileUiState(
     val usernameUnique: Boolean? = null, // null = not checked, true = unique, false = taken
     val updateSuccess: Boolean = false,
     val applySuccess: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val userCaseStudies: List<CaseStudy> = emptyList(),
+    val userExperiences: List<Experience> = emptyList(),
+    val isUserUploadedLoading: Boolean = false
 )

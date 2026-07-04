@@ -7,5 +7,11 @@ data class Workspace(
     val childOrgId: String?,
     val childOrgName: String?,
     val role: String, // "Student", "Guardian", "Teacher", "Driver", "Admin"
-    val isActive: Boolean
+    val isActive: Boolean,
+    val roleDisplayName: String? = null,
+    val workspaceSubRole: String? = null,
+    val roleImageUrl: String? = null,
+    val roleImageLocalPath: String? = null,
+    val studentId: String? = null,
+    val guardianId: String? = null
 )

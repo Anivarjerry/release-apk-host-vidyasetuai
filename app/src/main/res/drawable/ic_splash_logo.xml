@@ -1,0 +1,16 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="120"
+    android:viewportHeight="120">
+    <!-- Centering the 100x32 bridge logo inside a square 120x120 viewport.
+         Horizontal offset = (120 - 100) / 2 = 10
+         Vertical offset = (120 - 32) / 2 = 44 -->
+    <group
+        android:translateX="10"
+        android:translateY="44">
+        <path
+            android:fillColor="#FF10B981"
+            android:pathData="M 0 32 L 21.43 32 Q 50 6 78.57 32 L 100 32 Q 50 0 0 32 Z" />
+    </group>
+</vector>

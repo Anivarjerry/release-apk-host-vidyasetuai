@@ -10,6 +10,9 @@ import com.vidyasetuai.feature_profile.domain.model.UserProfile
 fun UserProfileDto.toEntity(): UserProfileEntity {
     return UserProfileEntity(
         userId = this.user_id,
+        email = this.email,
+        isActive = this.is_active,
+        isDeleted = this.is_deleted,
         username = this.username,
         firstName = this.first_name,
         lastName = this.last_name,
@@ -20,13 +23,18 @@ fun UserProfileDto.toEntity(): UserProfileEntity {
         preferredLanguage = this.preferred_language,
         isVerified = this.is_verified,
         gender = this.gender,
-        dateOfBirth = this.date_of_birth
+        dateOfBirth = this.date_of_birth,
+        totalInspiringCount = this.total_inspiring_count,
+        totalInspiredCount = this.total_inspired_count
     )
 }
 
 fun UserProfileDto.toDomain(): UserProfile {
     return UserProfile(
         userId = this.user_id,
+        email = this.email,
+        isActive = this.is_active,
+        isDeleted = this.is_deleted,
         username = this.username,
         firstName = this.first_name,
         lastName = this.last_name,
@@ -37,13 +45,18 @@ fun UserProfileDto.toDomain(): UserProfile {
         preferredLanguage = this.preferred_language,
         isVerified = this.is_verified,
         gender = this.gender,
-        dateOfBirth = this.date_of_birth
+        dateOfBirth = this.date_of_birth,
+        totalInspiringCount = this.total_inspiring_count,
+        totalInspiredCount = this.total_inspired_count
     )
 }
 
 fun UserProfileEntity.toDomain(): UserProfile {
     return UserProfile(
         userId = this.userId,
+        email = this.email,
+        isActive = this.isActive,
+        isDeleted = this.isDeleted,
         username = this.username,
         firstName = this.firstName,
         lastName = this.lastName,
@@ -54,13 +67,18 @@ fun UserProfileEntity.toDomain(): UserProfile {
         preferredLanguage = this.preferredLanguage,
         isVerified = this.isVerified,
         gender = this.gender,
-        dateOfBirth = this.dateOfBirth
+        dateOfBirth = this.dateOfBirth,
+        totalInspiringCount = this.totalInspiringCount,
+        totalInspiredCount = this.totalInspiredCount
     )
 }
 
 fun UserProfile.toEntity(): UserProfileEntity {
     return UserProfileEntity(
         userId = this.userId,
+        email = this.email,
+        isActive = this.isActive,
+        isDeleted = this.isDeleted,
         username = this.username,
         firstName = this.firstName,
         lastName = this.lastName,
@@ -71,13 +89,18 @@ fun UserProfile.toEntity(): UserProfileEntity {
         preferredLanguage = this.preferredLanguage,
         isVerified = this.isVerified,
         gender = this.gender,
-        dateOfBirth = this.dateOfBirth
+        dateOfBirth = this.dateOfBirth,
+        totalInspiringCount = this.totalInspiringCount,
+        totalInspiredCount = this.totalInspiredCount
     )
 }
 
 fun UserProfile.toDto(): UserProfileDto {
     return UserProfileDto(
         user_id = this.userId,
+        email = this.email,
+        is_active = this.isActive,
+        is_deleted = this.isDeleted,
         username = this.username,
         first_name = this.firstName,
         last_name = this.lastName,
@@ -88,7 +111,9 @@ fun UserProfile.toDto(): UserProfileDto {
         preferred_language = this.preferredLanguage,
         is_verified = this.isVerified,
         gender = this.gender,
-        date_of_birth = this.dateOfBirth
+        date_of_birth = this.dateOfBirth,
+        total_inspiring_count = this.totalInspiringCount,
+        total_inspired_count = this.totalInspiredCount
     )
 }
 

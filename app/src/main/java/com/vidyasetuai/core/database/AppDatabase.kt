@@ -17,10 +17,8 @@ import com.vidyasetuai.feature_campus.data.local.dao.CampusDao
 import com.vidyasetuai.feature_campus.data.local.entity.RoomEntity
 import com.vidyasetuai.feature_campus.data.local.entity.MessageEntity
 import com.vidyasetuai.feature_campus.data.local.entity.ModerationSettingsEntity
-
-import com.vidyasetuai.feature_institution.data.local.entity.*
 import com.vidyasetuai.feature_institution.data.local.dao.InstitutionDao
-
+import com.vidyasetuai.feature_institution.data.local.entity.*
 @Database(
     entities = [
         // ── Core / Cross-feature ───────────────────────────────────────────
@@ -44,103 +42,29 @@ import com.vidyasetuai.feature_institution.data.local.dao.InstitutionDao
         MessageEntity::class,
         ModerationSettingsEntity::class,
 
-        // ── Institution — पुरानी entities (already registered) ─────────────
+        // ── Institution — Reorganized Database Entities ─────────────────────
         WorkspaceEntity::class,
-        LocalStudentEntity::class,
-        OfflineCacheEntity::class,
-        LocalLeaveEntity::class,
-        LocalFeePaymentEntity::class,
-        LocalStudentAttendanceEntity::class,
-        LocalDriverBusDetailsEntity::class,
-        LocalStaffSalaryDetailsEntity::class,
-        LocalStaffSalaryPaymentEntity::class,
-        LocalContentFeedItemEntity::class,
-        LocalGuardianStudentEntity::class,
-        LocalActiveSessionEntity::class,
-        LocalChildOrgEntity::class,
-        LocalOrgClassEntity::class,
-        LocalOrgSectionEntity::class,
-        LocalPendingApprovalEntity::class,
-        LocalStudentImageVectorEntity::class,
-        LocalStudentQrIdentityEntity::class,
-        LocalStudentIdCardEntity::class,
-        LocalParentBusTripEntity::class,
-        LocalParentBusTripAttendanceLogEntity::class,
-        LocalRemarkEntity::class,
-        LocalRemarkTargetEntity::class,
-        LocalGlobalStaffRoleEntity::class,
-
-        // ── Institution — नई Global entities (LocalGlobalEntities.kt) ──────
-        LocalGlobalAttendanceStatusEntity::class,
-        LocalGlobalBloodGroupEntity::class,
-        LocalGlobalBoardEntity::class,
-        LocalGlobalClassEntity::class,
-        LocalGlobalExamSubjectRuleEntity::class,
-        LocalGlobalExamTypeEntity::class,
-        LocalGlobalExpenseTypeEntity::class,
-        LocalGlobalFacilityEntity::class,
-        LocalGlobalLanguageEntity::class,
-        LocalGlobalMediumEntity::class,
-        LocalGlobalOrgParentTypeEntity::class,
-        LocalGlobalOrgTypeEntity::class,
-        LocalGlobalRelationshipTypeEntity::class,
-        LocalGlobalResultStatusEntity::class,
-        LocalGlobalStudentCategoryEntity::class,
-        LocalGlobalStudentStatusEntity::class,
-        LocalGlobalSubjectEntity::class,
-
-        // ── Institution — नई Org Core entities (LocalOrgCoreEntities.kt) ───
-        LocalOrgAttendanceStatusEntity::class,
-        LocalOrgBoardEntity::class,
-        LocalBusChildAssignmentEntity::class,
-        LocalOrgExamEntity::class,
-        LocalFeeAssignmentEntity::class,
-        LocalGuardianUserLinkEntity::class,
-        LocalHolidayEntity::class,
-        LocalOrgLanguageEntity::class,
-        LocalOrgMediumEntity::class,
+        LocalChildOrgSetupEntity::class,
         LocalParentBusEntity::class,
-        LocalParentExpenseEntity::class,
-        LocalParentOrganizationEntity::class,
-        LocalParentOrgProfileEntity::class,
-        LocalParentOrgUserEntity::class,
-        LocalOrgPeriodEntity::class,
-        LocalOrgProfileEntity::class,
-        LocalOrgUserEntity::class,
-
-        // ── Institution — नई Student entities (LocalOrgStudentEntities.kt) ─
-        LocalStudentEnrollmentEntity::class,
-        LocalGuardianEntity::class,
-        LocalStudentAdditionalDetailsEntity::class,
+        LocalStudentEntity::class,
         LocalStudentAdditionalFeeEntity::class,
-        LocalStudentExamMarkEntity::class,
-        LocalStudentHomeworkEntity::class,
-        LocalStudentMarkEntity::class,
-        LocalStudentSubjectEntity::class,
-        LocalStudentUserLinkEntity::class,
-
-        // ── Institution — नई Staff entities (LocalOrgStaffEntities.kt) ─────
-        LocalParentStaffEntity::class,
+        LocalStudentFeePaymentEntity::class,
+        LocalParentExpenseEntity::class,
+        LocalStudentAttendanceEntity::class,
+        LocalParentBusTripAttendanceLogEntity::class,
+        LocalParentBusTripEntity::class,
+        LocalOrganizationLeaveEntity::class,
+        LocalOrganizationRemarkEntity::class,
+        LocalCalendarEventEntity::class,
         LocalParentStaffAttendanceEntity::class,
-        LocalParentStaffBusEnrollmentEntity::class,
-        LocalParentStaffBusFareEntity::class,
-        LocalParentStaffLeaveQuotaEntity::class,
-        LocalParentStaffSalaryPayoutEntity::class,
-        LocalParentStaffUserLinkEntity::class,
-        LocalParentBusStaffAssignmentEntity::class,
-
-        // ── Institution — नई Session/Content/Misc entities ─────────────────
-        // (LocalStudentBusAssignmentEntity.kt में define हैं)
-        LocalSessionClassEntity::class,
-        LocalSessionSectionEntity::class,
-        LocalSessionSubjectEntity::class,
-        LocalContentAssignmentEntity::class,
-        LocalTimetableScheduleEntity::class,
-        LocalRemarkAttachmentEntity::class,
-        LocalRemarkHistoryEntity::class,
-        LocalStudentBusAssignmentEntity::class,
+        LocalParentStaffEntity::class,
+        LocalStudentUserLinkEntity::class,
+        LocalOrganizationExamEntity::class,
+        LocalExamSubjectSettingEntity::class,
+        LocalStudentExamMarkEntity::class,
+        LocalBusRouteEntity::class
     ],
-    version = 14,
+    version = 25,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

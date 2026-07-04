@@ -17,4 +17,7 @@ sealed class ProfileEvent {
     data class ApplyVerification(val note: String) : ProfileEvent()
     object DismissSuccess : ProfileEvent()
     object ResetUsernameCheck : ProfileEvent()
+    data class UpdateUserCaseStudies(val list: List<com.vidyasetuai.feature_case_study.domain.model.CaseStudy>) : ProfileEvent()
+    data class UpdateUserExperiences(val list: List<com.vidyasetuai.feature_feed.domain.model.Experience>) : ProfileEvent()
+    data class SetUserUploadedLoading(val isLoading: Boolean) : ProfileEvent()
 }

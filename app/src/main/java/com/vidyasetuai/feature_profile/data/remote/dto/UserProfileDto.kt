@@ -5,6 +5,9 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class UserProfileDto(
     val user_id: String,
+    val email: String = "",
+    val is_active: Boolean = true,
+    val is_deleted: Boolean = false,
     val username: String? = null,
     val first_name: String? = null,
     val last_name: String? = null,
@@ -15,5 +18,7 @@ data class UserProfileDto(
     val preferred_language: String? = null,
     val is_verified: Boolean = false,
     val gender: String? = null,
-    val date_of_birth: String? = null
+    val date_of_birth: String? = null,
+    val total_inspiring_count: Int = 0,
+    val total_inspired_count: Int = 0
 )

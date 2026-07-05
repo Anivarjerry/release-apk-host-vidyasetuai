@@ -1434,8 +1434,10 @@ fun DashboardQuickActionsRow(
                 add(QuickActionItem(if (isHindi) "सैलरी" else "Salary", Lucide.Coins, onNavigateToFinance))
             }
 
-            // 6. Transport/Bus
-            add(QuickActionItem(if (isHindi) "परिवहन" else "Transport", Lucide.Bus, onNavigateToTransport))
+            // 6. Transport/Bus (Hide for Driver)
+            if (role != "Driver") {
+                add(QuickActionItem(if (isHindi) "परिवहन" else "Transport", Lucide.Bus, onNavigateToTransport))
+            }
 
             // 7. Notices
             add(QuickActionItem(if (isHindi) "सूचनाएं" else "Notices", Lucide.Megaphone, onNavigateToNotices))

@@ -1,28 +1,29 @@
 package com.vidyasetuai.feature_institution.presentation.component
 
 import android.os.Build
+import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,7 +32,60 @@ import com.vidyasetuai.core.ui.colors.AppColors
 import com.vidyasetuai.feature_institution.domain.model.BusLiveLocation
 import com.vidyasetuai.feature_institution.domain.model.BusRouteStop
 import com.vidyasetuai.feature_institution.domain.model.StudentBusAssignment
-import kotlin.math.*
+import com.vidyasetuai.feature_institution.data.local.entity.WorkspaceEntity
+import com.vidyasetuai.feature_institution.data.local.entity.LocalStudentEntity
+import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.sin
+import kotlin.math.cos
+import kotlin.math.pow
+import kotlin.math.atan2
+import kotlin.math.sqrt
+
+// ── In-Memory Cache for Bus Live Locations ──────────────────────────────────
+object InMemoryBusLocationCache {
+    private val cache = java.util.concurrent.ConcurrentHashMap<String, BusLiveLocation>()
+    
+    fun get(busId: String): BusLiveLocation? = cache[busId]
+    
+    fun put(busId: String, location: BusLiveLocation) {
+        cache[busId] = location
+    }
+}
+
+// ── Internet Checker Utility ────────────────────────────────────────────────
+private fun isInternetAvailable(context: android.content.Context): Boolean {
+    val connectivityManager = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+    val network = connectivityManager.activeNetwork ?: return false
+    val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+    return capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+}
+
+// ── Robust API-24 postgres timestamp parser ──────────────────────────────────
+private fun parsePostgresTimestampToEpoch(timestampStr: String): Long {
+    val cleanStr = timestampStr.replace("T", " ").substringBefore("+").substringBefore("Z")
+    val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+    sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+    return try {
+        val baseTime = sdf.parse(cleanStr)?.time ?: System.currentTimeMillis()
+        if (cleanStr.contains(".")) {
+            val msStr = cleanStr.substringAfter(".").take(3).padEnd(3, '0')
+            val ms = msStr.toLongOrNull() ?: 0L
+            baseTime + ms
+        } else {
+            baseTime
+        }
+    } catch (_: Exception) {
+        System.currentTimeMillis()
+    }
+}
+
+// Helper data class to store student home stop info
+data class StudentHomeLocationStop(
+    val studentName: String,
+    val firstLetter: String,
+    val nearestStopIdx: Int
+)
 
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
@@ -40,7 +94,7 @@ fun DashboardBusTrackingCard(
     studentBuses: List<StudentBusAssignment>,
     allBuses: List<com.vidyasetuai.feature_institution.data.local.entity.LocalParentBusEntity>,
     activeBusRoutes: Map<String, List<BusRouteStop>>,
-    activeBusLocation: BusLiveLocation?,
+    @Suppress("UNUSED_PARAMETER") activeBusLocation: BusLiveLocation?,
     isHindi: Boolean,
     isDark: Boolean,
     onViewAllClick: () -> Unit
@@ -49,18 +103,55 @@ fun DashboardBusTrackingCard(
     val hasBuses = if (isAdmin) allBuses.isNotEmpty() else studentBuses.isNotEmpty()
     if (!hasBuses) return
 
-    val cardBgColor = if (isDark) Color(0xFF1E293B).copy(alpha = 0.9f) else Color.White
-    val borderColor = if (isDark) Color(0xFF334155) else Color(0xFFE2E8F0)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var isRefreshing by remember { mutableStateOf(false) }
+    var refreshTrigger by remember { mutableIntStateOf(0) }
+
+    val cardBgColor = if (isDark) Color(0xFF1C1C1E) else Color.White
+    val borderColor = if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E5EA)
     val titleColor = if (isDark) Color(0xFFF1F5F9) else Color(0xFF1E293B)
-    val subtitleColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
+
+    val rotation = remember { Animatable(0f) }
+    LaunchedEffect(isRefreshing) {
+        if (isRefreshing) {
+            rotation.animateTo(
+                targetValue = 360f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1000, easing = LinearEasing),
+                    repeatMode = RepeatMode.Restart
+                )
+            )
+        } else {
+            rotation.snapTo(0f)
+        }
+    }
+
+    val displayBuses = remember(isAdmin, allBuses, studentBuses) {
+        if (isAdmin) {
+            allBuses.take(3).map { bus ->
+                StudentBusAssignment(
+                    studentId = "",
+                    studentName = bus.busName ?: bus.busNumber,
+                    busId = bus.id,
+                    busNumber = bus.busNumber,
+                    busName = bus.busName,
+                    routeName = bus.routeName,
+                    pickupStop = null
+                )
+            }
+        } else {
+            studentBuses.take(3)
+        }
+    }
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .clickable { onViewAllClick() },
+            .clip(RoundedCornerShape(16.dp)),
         colors = CardDefaults.cardColors(containerColor = cardBgColor),
         shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
@@ -78,7 +169,7 @@ fun DashboardBusTrackingCard(
                     Icon(
                         imageVector = Lucide.Bus,
                         contentDescription = "Bus",
-                        tint = Color(0xFF10B981),
+                        tint = AppColors.EmeraldGreen,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -88,46 +179,77 @@ fun DashboardBusTrackingCard(
                         fontWeight = FontWeight.Bold,
                         color = titleColor
                     )
-                    
-                    // Live pulsing indicator if any bus has live data
-                    val isLive = activeBusLocation?.isLive == true
-                    if (isLive) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        LiveIndicator()
-                    }
                 }
                 
-                Text(
-                    text = if (isHindi) "सभी देखें >" else "View All >",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF10B981),
-                    modifier = Modifier.clickable { onViewAllClick() }
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Sync / Refresh Button
+                    Icon(
+                        imageVector = Lucide.RefreshCw,
+                        contentDescription = "Sync",
+                        tint = AppColors.EmeraldGreen,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .rotate(rotation.value)
+                            .clickable(enabled = !isRefreshing) {
+                                if (!isInternetAvailable(context)) {
+                                    Toast.makeText(
+                                        context,
+                                        if (isHindi) "कृपया इंटरनेट चालू करें" else "Please connect to the internet",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } else {
+                                    isRefreshing = true
+                                    scope.launch {
+                                        try {
+                                            val remoteDS = com.vidyasetuai.feature_institution.data.remote.datasource.InstitutionRemoteDataSource()
+                                            displayBuses.forEach { bus ->
+                                                val remoteLoc = remoteDS.fetchBusLiveLocation(bus.busId)
+                                                if (remoteLoc != null) {
+                                                    val cleanStr = remoteLoc.updated_at.replace(" ", "T")
+                                                    val updatedEpoch = parsePostgresTimestampToEpoch(cleanStr)
+                                                    val diffMs = System.currentTimeMillis() - updatedEpoch
+                                                    val isLive = abs(diffMs) < 120 * 1000
+                                                    
+                                                    val busLive = BusLiveLocation(
+                                                        busId = remoteLoc.bus_id,
+                                                        latitude = remoteLoc.latitude,
+                                                        longitude = remoteLoc.longitude,
+                                                        speed = remoteLoc.speed,
+                                                        updatedAt = remoteLoc.updated_at,
+                                                        isLive = isLive
+                                                    )
+                                                    InMemoryBusLocationCache.put(bus.busId, busLive)
+                                                }
+                                            }
+                                            refreshTrigger++
+                                        } catch (_: Exception) {
+                                            // Fail silently
+                                        } finally {
+                                            isRefreshing = false
+                                        }
+                                    }
+                                }
+                            }
+                    )
+
+                    Text(
+                        text = if (isHindi) "सभी देखें >" else "View All >",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = AppColors.EmeraldGreen,
+                        modifier = Modifier.clickable { onViewAllClick() }
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Limits to maximum 3 routes to maintain card proportions
-            val displayBuses = if (isAdmin) {
-                allBuses.take(3).map { bus ->
-                    StudentBusAssignment(
-                        studentId = "",
-                        studentName = bus.busName ?: bus.busNumber,
-                        busId = bus.id,
-                        busNumber = bus.busNumber,
-                        busName = bus.busName,
-                        routeName = bus.routeName,
-                        pickupStop = null
-                    )
-                }
-            } else {
-                studentBuses.take(3)
-            }
             displayBuses.forEachIndexed { index, assignment ->
                 if (index > 0) {
                     Spacer(modifier = Modifier.height(16.dp))
-                    // Divider between children
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -140,9 +262,9 @@ fun DashboardBusTrackingCard(
                 BusRouteRow(
                     assignment = assignment,
                     routeStops = activeBusRoutes[assignment.busId] ?: emptyList(),
-                    activeBusLocation = if (activeBusLocation?.busId == assignment.busId) activeBusLocation else null,
                     isHindi = isHindi,
-                    isDark = isDark
+                    isDark = isDark,
+                    refreshTrigger = refreshTrigger
                 )
             }
         }
@@ -150,54 +272,117 @@ fun DashboardBusTrackingCard(
 }
 
 @Composable
-fun LiveIndicator() {
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val scale by infiniteTransition.animateFloat(
-        initialValue = 0.7f,
-        targetValue = 1.3f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "scale"
-    )
-    Box(
-        modifier = Modifier
-            .size(8.dp)
-            .background(Color(0xFFEF4444), shape = CircleShape)
-    )
-}
-
-@Composable
 fun BusRouteRow(
     assignment: StudentBusAssignment,
     routeStops: List<BusRouteStop>,
-    activeBusLocation: BusLiveLocation?,
     isHindi: Boolean,
-    isDark: Boolean
+    isDark: Boolean,
+    refreshTrigger: Int
 ) {
+    val context = LocalContext.current
     val titleColor = if (isDark) Color(0xFFF1F5F9) else Color(0xFF1E293B)
     val subtitleColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
 
-    // Calculate details
-    val busLat = activeBusLocation?.latitude
-    val busLon = activeBusLocation?.longitude
-    val pickupStopName = assignment.pickupStop ?: ""
+    // Load from in-memory cache to maintain states across recompositions
+    val syncedLocation = remember(assignment.busId, refreshTrigger) {
+        InMemoryBusLocationCache.get(assignment.busId)
+    }
 
-    val stopsCount = routeStops.size
-    val pickupIndex = routeStops.indexOfFirst { it.stopName.equals(pickupStopName, ignoreCase = true) }
-    
-    var currentStopIndex = -1
-    var remainingStops = -1
-    var currentStopName = ""
-    var tripNotStarted = true
+    val sortedStops = remember(routeStops) {
+        routeStops.sortedBy { it.stopOrder }
+    }
 
-    if (busLat != null && busLon != null && routeStops.isNotEmpty()) {
-        tripNotStarted = activeBusLocation?.isLive == false
+    // Proximity checks for student home location
+    var activeWorkspace by remember { mutableStateOf<WorkspaceEntity?>(null) }
+    var studentHomeStops by remember { mutableStateOf<List<StudentHomeLocationStop>>(emptyList()) }
+
+    LaunchedEffect(assignment.studentId, activeWorkspace, sortedStops) {
+        val db = com.vidyasetuai.core.database.AppDatabase.getDatabase(context)
+        if (activeWorkspace == null) {
+            activeWorkspace = db.institutionDao().getActiveWorkspace()
+        }
+        val workspace = activeWorkspace ?: return@LaunchedEffect
         
-        // Find nearest stop to bus
+        if (sortedStops.isNotEmpty()) {
+            val list = mutableListOf<StudentHomeLocationStop>()
+            if (workspace.workspaceRole.equals("STUDENT", ignoreCase = true)) {
+                val studentId = workspace.studentId ?: ""
+                if (studentId.isNotEmpty()) {
+                    val student = db.institutionDao().getStudentById(studentId)
+                    if (student != null && student.homeLatitude != null && student.homeLongitude != null) {
+                        var minDistance = Double.MAX_VALUE
+                        var closestIdx = -1
+                        sortedStops.forEachIndexed { idx, stop ->
+                            if (stop.latitude != null && stop.longitude != null) {
+                                val distance = calculateDistance(student.homeLatitude, student.homeLongitude, stop.latitude, stop.longitude)
+                                if (distance < minDistance) {
+                                    minDistance = distance
+                                    closestIdx = idx
+                                }
+                            }
+                        }
+                        if (closestIdx != -1) {
+                            list.add(
+                                StudentHomeLocationStop(
+                                    studentName = student.name ?: "",
+                                    firstLetter = (student.name ?: "S").take(1).uppercase(),
+                                    nearestStopIdx = closestIdx
+                                )
+                            )
+                        }
+                    }
+                }
+            } else if (workspace.workspaceRole.equals("GUARDIAN", ignoreCase = true)) {
+                val guardianId = workspace.guardianId ?: ""
+                if (guardianId.isNotEmpty()) {
+                    val students = db.institutionDao().getStudentsByGuardianId(guardianId)
+                    students.forEach { student ->
+                        if (student.homeLatitude != null && student.homeLongitude != null) {
+                            var minDistance = Double.MAX_VALUE
+                            var closestIdx = -1
+                            sortedStops.forEachIndexed { idx, stop ->
+                                if (stop.latitude != null && stop.longitude != null) {
+                                    val distance = calculateDistance(student.homeLatitude, student.homeLongitude, stop.latitude, stop.longitude)
+                                    if (distance < minDistance) {
+                                        minDistance = distance
+                                        closestIdx = idx
+                                    }
+                                }
+                            }
+                            if (closestIdx != -1) {
+                                list.add(
+                                    StudentHomeLocationStop(
+                                        studentName = student.name ?: "",
+                                        firstLetter = (student.name ?: "S").take(1).uppercase(),
+                                        nearestStopIdx = closestIdx
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            studentHomeStops = list
+        }
+    }
+
+    var currentStopIndex = -1
+    // By default, if syncedLocation is null OR updated more than 2 minutes ago, tracking is offline.
+    var isTrackingOnline = false
+
+    if (syncedLocation != null) {
+        val cleanStr = syncedLocation.updatedAt.replace(" ", "T")
+        val updatedEpoch = parsePostgresTimestampToEpoch(cleanStr)
+        val diffMs = System.currentTimeMillis() - updatedEpoch
+        isTrackingOnline = abs(diffMs) < 120 * 1000
+    }
+
+    val busLat = if (isTrackingOnline) syncedLocation?.latitude else null
+    val busLon = if (isTrackingOnline) syncedLocation?.longitude else null
+
+    if (busLat != null && busLon != null && sortedStops.isNotEmpty()) {
         var minDistance = Double.MAX_VALUE
-        routeStops.forEachIndexed { idx, stop ->
+        sortedStops.forEachIndexed { idx, stop ->
             if (stop.latitude != null && stop.longitude != null) {
                 val distance = calculateDistance(busLat, busLon, stop.latitude, stop.longitude)
                 if (distance < minDistance) {
@@ -206,17 +391,10 @@ fun BusRouteRow(
                 }
             }
         }
-        
-        if (currentStopIndex != -1) {
-            currentStopName = routeStops[currentStopIndex].stopName
-            if (pickupIndex != -1) {
-                remainingStops = pickupIndex - currentStopIndex
-            }
-        }
     }
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        // Child & Bus info
+        // Info Row
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -235,26 +413,22 @@ fun BusRouteRow(
                     color = subtitleColor
                 )
             }
-            
-            // ETA or Status Badge
+
+            // Status Badge
             val statusText = when {
-                tripNotStarted || routeStops.isEmpty() -> if (isHindi) "शुरू नहीं हुई" else "Not Started"
-                remainingStops > 0 -> if (isHindi) "${remainingStops} स्टॉप दूर" else "${remainingStops} stops away"
-                remainingStops == 0 -> if (isHindi) "पहुंच गई" else "Arrived"
-                remainingStops < 0 -> if (isHindi) "निकल चुकी" else "Departed"
+                syncedLocation == null -> if (isHindi) "शुरू नहीं हुई" else "Not Started"
+                !isTrackingOnline -> if (isHindi) "ऑफ़लाइन" else "Offline"
                 else -> if (isHindi) "ट्रैकिंग सक्रिय" else "Tracking Active"
             }
             val badgeBg = when {
-                tripNotStarted -> if (isDark) Color(0xFF334155) else Color(0xFFF1F5F9)
-                remainingStops == 0 -> Color(0xFFD1FAE5)
-                remainingStops > 0 -> Color(0xFFFEF3C7)
-                else -> if (isDark) Color(0xFF1E293B) else Color(0xFFF8FAFC)
+                syncedLocation == null -> if (isDark) Color(0xFF2C2C2E) else Color(0xFFF2F2F7)
+                !isTrackingOnline -> if (isDark) Color(0xFF3A3A3C) else Color(0xFFE5E5EA)
+                else -> Color(0xFFE8F5E9)
             }
             val badgeTextColor = when {
-                tripNotStarted -> subtitleColor
-                remainingStops == 0 -> Color(0xFF065F46)
-                remainingStops > 0 -> Color(0xFF92400E)
-                else -> subtitleColor
+                syncedLocation == null -> subtitleColor
+                !isTrackingOnline -> subtitleColor
+                else -> Color(0xFF2E7D32)
             }
 
             Box(
@@ -274,14 +448,14 @@ fun BusRouteRow(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Metro timeline layout
+        // Metro Timeline View
         MetroTimeline(
-            stops = routeStops,
-            currentBusIndex = currentStopIndex,
-            pickupIndex = pickupIndex,
+            stops = sortedStops,
+            nearestStopIdx = currentStopIndex,
+            isTrackingOnline = isTrackingOnline,
+            studentHomeStops = studentHomeStops,
             isDark = isDark,
-            isHindi = isHindi,
-            tripNotStarted = tripNotStarted
+            isHindi = isHindi
         )
     }
 }
@@ -289,198 +463,215 @@ fun BusRouteRow(
 @Composable
 fun MetroTimeline(
     stops: List<BusRouteStop>,
-    currentBusIndex: Int,
-    pickupIndex: Int,
+    nearestStopIdx: Int,
+    isTrackingOnline: Boolean,
+    studentHomeStops: List<StudentHomeLocationStop>,
     isDark: Boolean,
-    isHindi: Boolean,
-    tripNotStarted: Boolean
+    isHindi: Boolean
 ) {
     if (stops.isEmpty()) {
-        // Fallback simple line
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(4.dp)
-                .background(if (isDark) Color(0xFF334155) else Color(0xFFE2E8F0), RoundedCornerShape(2.dp))
+                .background(if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E5EA), RoundedCornerShape(2.dp))
         )
         return
     }
 
-    val lineColor = if (isDark) Color(0xFF475569) else Color(0xFFCBD5E1)
-    val activeColor = Color(0xFF10B981) // Green
-    val textStyleColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
+    val lineColor = if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E5EA)
+    val activeColor = AppColors.EmeraldGreen
+    val textStyleColor = if (isDark) Color(0xFF8E8E93) else Color(0xFF8E8E93)
 
-    // Let's decide which nodes to show
-    // We only show up to 4 key nodes: First stop, Current Bus stop, Student Stop, and Last stop
-    // To fit nicely on mobile screens:
-    // Node 1: First stop (S_0)
-    // Node 2: Bus (Current Stop) - if started
-    // Node 3: Home/Pickup (Student Stop)
-    // Node 4: Destination (Last Stop)
+    // Total points = stops.size + 2 (Start School, intermediate stops, End School)
+    val totalPoints = stops.size + 2
+    
+    // If online, active stop is nearestStopIdx + 1. If offline, it is always at School (Point 0).
+    val activePointIdx = if (isTrackingOnline && nearestStopIdx != -1) nearestStopIdx + 1 else 0
 
-    val firstStop = stops.first()
-    val lastStop = stops.last()
-    val studentStop = if (pickupIndex != -1) stops[pickupIndex] else null
+    var widthDp by remember { mutableStateOf(0.dp) }
+    val density = LocalDensity.current
 
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(84.dp)
+            .onGloballyPositioned { layoutCoordinates ->
+                widthDp = with(density) { layoutCoordinates.size.width.toDp() }
+            }
+    ) {
+        val timelineY = 32.dp // Shift timeline down to leave space for student home icons
+
+        // Canvas for line path drawing
+        Canvas(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(28.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .height(56.dp)
         ) {
-            Canvas(modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .height(20.dp)
-            ) {
-                val width = size.width
-                val y = size.height / 2
+            val y = timelineY.toPx()
+            val widthPx = size.width
 
-                // Draw base line
+            // 1. Draw Inactive Gray Base Line
+            drawLine(
+                color = lineColor,
+                start = Offset(0f, y),
+                end = Offset(widthPx, y),
+                strokeWidth = 4.dp.toPx()
+            )
+
+            // 2. Draw Active Green Path (If activePointIdx > 0, indicating online & progress)
+            if (isTrackingOnline && activePointIdx > 0) {
+                val activeFraction = activePointIdx.toFloat() / (totalPoints - 1)
+                val activeXPx = widthPx * activeFraction
+                
                 drawLine(
-                    color = lineColor,
+                    color = activeColor,
                     start = Offset(0f, y),
-                    end = Offset(width, y),
+                    end = Offset(activeXPx, y),
                     strokeWidth = 4.dp.toPx()
                 )
+            }
+        }
 
-                // If trip started and bus position is valid
-                if (!tripNotStarted && currentBusIndex != -1) {
-                    val busProgress = currentBusIndex.toFloat() / (stops.size - 1).coerceAtLeast(1)
-                    val busX = width * busProgress
-                    
-                    // Draw green active route up to bus
-                    drawLine(
-                        color = activeColor,
-                        start = Offset(0f, y),
-                        end = Offset(busX, y),
-                        strokeWidth = 4.dp.toPx()
-                    )
+        // Overlay dots and icons
+        for (i in 0 until totalPoints) {
+            val fraction = i.toFloat() / (totalPoints - 1)
+            val xOffset = widthDp * fraction
 
-                    // Draw dotted active line between Bus and Student Pickup if bus hasn't passed it
-                    if (pickupIndex != -1 && currentBusIndex < pickupIndex) {
-                        val studentProgress = pickupIndex.toFloat() / (stops.size - 1).coerceAtLeast(1)
-                        val studentX = width * studentProgress
-                        
-                        drawLine(
-                            color = activeColor,
-                            start = Offset(busX, y),
-                            end = Offset(studentX, y),
-                            strokeWidth = 4.dp.toPx(),
-                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
-                        )
-                    }
-                }
+            // Check if point is Start School (0) or End School (totalPoints - 1)
+            val isSchoolPoint = i == 0 || i == totalPoints - 1
+            val pointRadius = if (isSchoolPoint) 8.dp else 4.dp
+            val isPassedOrAt = isTrackingOnline && i <= activePointIdx
+            val pointColor = if (isPassedOrAt) activeColor else lineColor
 
-                // Draw circles for nodes
-                // Node 1: Start (First Stop)
-                drawCircle(
-                    color = if (!tripNotStarted && currentBusIndex >= 0) activeColor else lineColor,
-                    radius = 5.dp.toPx(),
-                    center = Offset(0f, y)
+            // Draw dot
+            Box(
+                modifier = Modifier
+                    .offset(x = xOffset - pointRadius, y = timelineY - pointRadius)
+                    .size(pointRadius * 2)
+                    .background(pointColor, CircleShape)
+            )
+        }
+
+        // 3. Draw Student Home Location Icons (Only for Guardian/Student roles)
+        studentHomeStops.forEach { homeStop ->
+            val homePointIdx = homeStop.nearestStopIdx + 1
+            val fraction = homePointIdx.toFloat() / (totalPoints - 1)
+            val xOffset = widthDp * fraction
+            
+            // Draw a beautiful small MapPin icon + child's first letter badge above the timeline line
+            Row(
+                modifier = Modifier
+                    .offset(x = xOffset - 18.dp, y = timelineY - 26.dp)
+                    .background(if (isDark) Color(0xFF2C2C2E) else Color(0xFFF2F2F7), RoundedCornerShape(4.dp))
+                    .border(0.5.dp, if (isDark) Color(0xFF3A3A3C) else Color(0xFFE5E5EA), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Lucide.MapPin,
+                    contentDescription = null,
+                    tint = Color(0xFF3B82F6),
+                    modifier = Modifier.size(10.dp)
                 )
-
-                // Node 2: Student Pickup stop (Highlighted)
-                if (pickupIndex != -1) {
-                    val studentProgress = pickupIndex.toFloat() / (stops.size - 1).coerceAtLeast(1)
-                    val studentX = width * studentProgress
-                    
-                    val isBusPassed = !tripNotStarted && currentBusIndex > pickupIndex
-                    val isBusAtStop = !tripNotStarted && currentBusIndex == pickupIndex
-
-                    drawCircle(
-                        color = when {
-                            isBusAtStop -> Color(0xFFEF4444) // Red for arrival
-                            isBusPassed -> activeColor
-                            else -> Color(0xFF3B82F6) // Blue for student home stop
-                        },
-                        radius = 7.dp.toPx(),
-                        center = Offset(studentX, y)
-                    )
-                }
-
-                // Node 3: Bus current location (as a pulsing circle or indicator)
-                if (!tripNotStarted && currentBusIndex != -1) {
-                    val busProgress = currentBusIndex.toFloat() / (stops.size - 1).coerceAtLeast(1)
-                    val busX = width * busProgress
-
-                    drawCircle(
-                        color = activeColor,
-                        radius = 7.dp.toPx(),
-                        center = Offset(busX, y)
-                    )
-                    drawCircle(
+                Spacer(modifier = Modifier.width(2.dp))
+                Box(
+                    modifier = Modifier
+                        .size(13.dp)
+                        .background(Color(0xFF3B82F6), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = homeStop.firstLetter,
                         color = Color.White,
-                        radius = 3.dp.toPx(),
-                        center = Offset(busX, y)
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
                     )
                 }
-
-                // Node 4: End Destination (Last Stop)
-                drawCircle(
-                    color = if (!tripNotStarted && currentBusIndex >= stops.size - 1) activeColor else lineColor,
-                    radius = 5.dp.toPx(),
-                    center = Offset(width, y)
-                )
             }
         }
 
-        // Labels Row
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+        // 4. Draw active Bus Pin Icon (At activePointIdx)
+        val fraction = activePointIdx.toFloat() / (totalPoints - 1)
+        val xOffset = widthDp * fraction
+        
+        Box(
+            modifier = Modifier
+                .offset(x = xOffset - 14.dp, y = timelineY - 14.dp)
+                .size(28.dp)
+                .background(if (isTrackingOnline) Color(0xFF3B82F6) else Color(0xFF8E8E93), CircleShape)
+                .padding(4.dp),
+            contentAlignment = Alignment.Center
         ) {
-            // First stop label
-            Text(
-                text = firstStop.stopName,
-                fontSize = 10.sp,
-                color = textStyleColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.width(60.dp)
-            )
-
-            // Current Bus stop label (if bus is between first and last)
-            if (!tripNotStarted && currentBusIndex > 0 && currentBusIndex < stops.size - 1 && currentBusIndex != pickupIndex) {
-                Text(
-                    text = "🚌 " + stops[currentBusIndex].stopName,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = activeColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.width(80.dp)
-                )
-            }
-
-            // Student Stop label
-            if (pickupIndex != 0 && pickupIndex != stops.size - 1) {
-                Text(
-                    text = "🏠 " + (studentStop?.stopName ?: ""),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (currentBusIndex == pickupIndex) Color(0xFFEF4444) else Color(0xFF3B82F6),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.width(80.dp)
-                )
-            }
-
-            // Last stop label
-            Text(
-                text = lastStop.stopName,
-                fontSize = 10.sp,
-                color = textStyleColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.width(60.dp)
+            Icon(
+                imageVector = Lucide.MapPin,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(16.dp)
             )
         }
+
+        // ── Labels Row at the bottom ─────────────────────────────────────────
+        // 1. Start point label (School)
+        Text(
+            text = if (isHindi) "विद्यालय" else "School",
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            color = textStyleColor,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 2.dp)
+        )
+
+        // 2. Synced active stop label in center (under matched stop dot)
+        if (isTrackingOnline && activePointIdx > 0 && nearestStopIdx in stops.indices) {
+            val constrainedX = (xOffset - 50.dp).coerceIn(8.dp, widthDp - 108.dp)
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .offset(x = constrainedX)
+                    .width(100.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Lucide.MapPin,
+                        contentDescription = null,
+                        tint = Color(0xFF3B82F6),
+                        modifier = Modifier.size(11.dp)
+                    )
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text(
+                        text = stops[nearestStopIdx].stopName,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF3B82F6),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+
+        // 3. End point label (School)
+        Text(
+            text = if (isHindi) "विद्यालय" else "School",
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            color = textStyleColor,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 2.dp)
+        )
     }
 }
 
-// Haversine formula to calculate distance in meters
+// ── Haversine Proximity/Distance helper ─────────────────────────────────────
 private fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
     val r = 6371000.0 // Earth radius in meters
     val phi1 = Math.toRadians(lat1)

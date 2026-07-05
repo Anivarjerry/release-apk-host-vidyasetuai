@@ -86,4 +86,7 @@ sealed class InstitutionEvent {
     
     // Sync Center Event
     data class SyncAllPending(val userId: String) : InstitutionEvent()
+    
+    // Force Refresh Active Workspace Event
+    object ForceRefreshActiveWorkspace : InstitutionEvent()
 }

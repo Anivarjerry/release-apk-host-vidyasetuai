@@ -2,12 +2,14 @@ package com.vidyasetuai.feature_feed.presentation.screen
 
 import android.util.Log
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.ui.draw.rotate
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -562,6 +564,28 @@ fun WorkspaceContainer(
 ) {
     var showSwitcher by remember { mutableStateOf(false) }
     val activeSubScreen = state.activeSubScreen
+    val context = LocalContext.current
+
+    var isRefreshingWorkspace by remember { mutableStateOf(false) }
+    val refreshRotation = remember { Animatable(0f) }
+    LaunchedEffect(isRefreshingWorkspace) {
+        if (isRefreshingWorkspace) {
+            refreshRotation.animateTo(
+                targetValue = 360f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1000, easing = LinearEasing),
+                    repeatMode = RepeatMode.Restart
+                )
+            )
+        } else {
+            refreshRotation.snapTo(0f)
+        }
+    }
+    LaunchedEffect(state.isLoading) {
+        if (!state.isLoading) {
+            isRefreshingWorkspace = false
+        }
+    }
     var selectedBusId by remember { mutableStateOf<String?>(null) }
     var selectedPaymentReceipt by remember { mutableStateOf<com.vidyasetuai.feature_institution.domain.model.StaffSalaryPayment?>(null) }
     var selectedFeedItem by remember { mutableStateOf<ContentFeedItem?>(null) }
@@ -686,27 +710,60 @@ fun WorkspaceContainer(
                         }
                     }
 
-                    // Sync Center Cloud Icon (on the right)
-                    IconButton(
-                        onClick = {
-                            viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("pending_syncs"))
-                        },
-                        modifier = Modifier.size(28.dp)
+                    // Header control buttons row
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Box(contentAlignment = Alignment.TopEnd) {
+                        // Force Sync Active Workspace Button
+                        IconButton(
+                            onClick = {
+                                if (!isInternetAvailable(context)) {
+                                    Toast.makeText(
+                                        context,
+                                        if (isHindi) "कृपया इंटरनेट चालू करें" else "Please connect to the internet",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } else {
+                                    isRefreshingWorkspace = true
+                                    viewModel.onEvent(InstitutionEvent.ForceRefreshActiveWorkspace)
+                                }
+                            },
+                            enabled = !isRefreshingWorkspace && !state.isLoading,
+                            modifier = Modifier.size(28.dp)
+                        ) {
                             Icon(
-                                imageVector = Lucide.Cloud,
-                                contentDescription = "Sync Center",
-                                tint = if (state.totalUnsyncedCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                modifier = Modifier.size(24.dp)
+                                imageVector = Lucide.RefreshCw,
+                                contentDescription = "Force Sync Workspace",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .rotate(refreshRotation.value)
                             )
-                            if (state.totalUnsyncedCount > 0) {
-                                Box(
-                                    modifier = Modifier
-                                        .offset(x = 2.dp, y = (-2).dp)
-                                        .background(Color.Red, CircleShape)
-                                        .size(8.dp)
+                        }
+
+                        // Sync Center Cloud Icon (on the right)
+                        IconButton(
+                            onClick = {
+                                viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("pending_syncs"))
+                            },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.TopEnd) {
+                                Icon(
+                                    imageVector = Lucide.Cloud,
+                                    contentDescription = "Sync Center",
+                                    tint = if (state.totalUnsyncedCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(24.dp)
                                 )
+                                if (state.totalUnsyncedCount > 0) {
+                                    Box(
+                                        modifier = Modifier
+                                            .offset(x = 2.dp, y = (-2).dp)
+                                            .background(Color.Red, CircleShape)
+                                            .size(8.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -952,6 +1009,7 @@ fun WorkspaceContainer(
                             state = state,
                             isHindi = isHindi,
                             isDark = isDark,
+                            viewModel = viewModel,
                             onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
                         )
                         "fab_add_case_study" -> AddCaseStudyFabSubScreen(
@@ -1801,4 +1859,10 @@ fun GallerySubScreen(
     }
 }
 
+private fun isInternetAvailable(context: android.content.Context): Boolean {
+    val connectivityManager = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+    val network = connectivityManager.activeNetwork ?: return false
+    val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+    return capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+}
 

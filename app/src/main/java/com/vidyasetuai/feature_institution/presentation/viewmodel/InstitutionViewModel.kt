@@ -279,6 +279,9 @@ class InstitutionViewModel(
             is InstitutionEvent.SyncAllPending -> {
                 syncAllPending(event.userId)
             }
+            is InstitutionEvent.ForceRefreshActiveWorkspace -> {
+                forceRefreshActiveWorkspace()
+            }
         }
     }
 
@@ -649,6 +652,29 @@ class InstitutionViewModel(
             _uiState.value = _uiState.value.copy(isLoading = false)
             // Load specific data
             val userId = currentUserId.ifEmpty { "user_mock_id_1" }
+            loadWorkspaceData(userId, current)
+            triggerWorkspaceSync(userId, current)
+        }
+    }
+
+    private fun forceRefreshActiveWorkspace() {
+        val current = _uiState.value.activeWorkspace ?: return
+        val userId = currentUserId.ifEmpty { "user_mock_id_1" }
+        _uiState.value = _uiState.value.copy(
+            isLoading = true,
+            guardianStudents = emptyList(),
+            assignedStudents = emptyList(),
+            studentsForAttendance = emptyList(),
+            leaves = emptyList(),
+            feePayments = emptyList(),
+            studentAttendance = emptyList(),
+            offlineStudents = emptyList()
+        )
+        viewModelScope.launch {
+            repository.clearWorkspaceSpecificData()
+            // Simulate skeleton loader transition
+            delay(400)
+            _uiState.value = _uiState.value.copy(isLoading = false)
             loadWorkspaceData(userId, current)
             triggerWorkspaceSync(userId, current)
         }

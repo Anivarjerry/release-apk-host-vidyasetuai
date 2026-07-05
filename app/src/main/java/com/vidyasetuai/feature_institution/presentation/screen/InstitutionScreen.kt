@@ -60,10 +60,7 @@ import com.vidyasetuai.feature_institution.presentation.screen.subscreens.TakeAt
 import com.vidyasetuai.feature_institution.presentation.screen.subscreens.CollectFeeFabSubScreen
 import com.vidyasetuai.feature_institution.presentation.screen.subscreens.AddFinanceFabSubScreen
 import com.vidyasetuai.feature_institution.presentation.screen.subscreens.StartTripFabSubScreen
-import com.vidyasetuai.feature_institution.presentation.screen.subscreens.AddCaseStudyFabSubScreen
-import com.vidyasetuai.feature_institution.presentation.screen.subscreens.AddExperienceFabSubScreen
 import com.vidyasetuai.feature_institution.presentation.screen.subscreens.AddJourneyFabSubScreen
-import com.vidyasetuai.feature_institution.presentation.screen.subscreens.QuicksFabSubScreen
 import com.vidyasetuai.feature_institution.presentation.screen.dashboards.*
 import com.vidyasetuai.feature_institution.presentation.component.DashboardFloatingActionButton
 import com.vidyasetuai.feature_institution.util.DashboardFabRules
@@ -1012,25 +1009,7 @@ fun WorkspaceContainer(
                             viewModel = viewModel,
                             onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
                         )
-                        "fab_add_case_study" -> AddCaseStudyFabSubScreen(
-                            state = state,
-                            isHindi = isHindi,
-                            isDark = isDark,
-                            onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
-                        )
-                        "fab_add_experience" -> AddExperienceFabSubScreen(
-                            state = state,
-                            isHindi = isHindi,
-                            isDark = isDark,
-                            onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
-                        )
                         "fab_add_journey" -> AddJourneyFabSubScreen(
-                            state = state,
-                            isHindi = isHindi,
-                            isDark = isDark,
-                            onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
-                        )
-                        "fab_quicks" -> QuicksFabSubScreen(
                             state = state,
                             isHindi = isHindi,
                             isDark = isDark,

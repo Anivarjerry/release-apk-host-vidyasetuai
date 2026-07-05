@@ -12,7 +12,7 @@ import com.vidyasetuai.feature_profile.data.remote.dto.UserProfileDto
 class CaseStudyRemoteDataSource {
 
     suspend fun getCaseStudies(): List<CaseStudyDto> {
-        return SupabaseClient.client.from("case_studies_preview")
+        return SupabaseClient.client.from("case_studies")
             .select(columns = Columns.raw("*"))
             .decodeList()
     }
@@ -27,8 +27,8 @@ class CaseStudyRemoteDataSource {
     }
 
     suspend fun getUserReactions(userId: String): List<ReactionDto> {
-        return SupabaseClient.client.from("case_study_reactions")
-            .select(columns = Columns.raw("id, case_study_id, user_id, reaction_type")) {
+        return SupabaseClient.client.from("case_study_inspirations")
+            .select(columns = Columns.raw("id, case_study_id, user_id")) {
                 filter {
                     eq("user_id", userId)
                 }
@@ -36,29 +36,22 @@ class CaseStudyRemoteDataSource {
     }
 
     suspend fun getUserBookmarks(userId: String): List<BookmarkDto> {
-        return SupabaseClient.client.from("case_study_bookmarks")
-            .select(columns = Columns.raw("id, case_study_id, user_id")) {
-                filter {
-                    eq("user_id", userId)
-                }
-            }.decodeList()
+        return emptyList()
     }
 
     suspend fun getAllReactions(): List<ReactionDto> {
-        return SupabaseClient.client.from("case_study_reactions")
-            .select(columns = Columns.raw("id, case_study_id, user_id, reaction_type"))
-            .decodeList()
-    }
-
-    suspend fun getAllBookmarks(): List<BookmarkDto> {
-        return SupabaseClient.client.from("case_study_bookmarks")
+        return SupabaseClient.client.from("case_study_inspirations")
             .select(columns = Columns.raw("id, case_study_id, user_id"))
             .decodeList()
     }
 
+    suspend fun getAllBookmarks(): List<BookmarkDto> {
+        return emptyList()
+    }
+
     suspend fun getReactionsForCaseStudy(caseStudyId: String): List<ReactionDto> {
-        return SupabaseClient.client.from("case_study_reactions")
-            .select(columns = Columns.raw("id, case_study_id, user_id, reaction_type")) {
+        return SupabaseClient.client.from("case_study_inspirations")
+            .select(columns = Columns.raw("id, case_study_id, user_id")) {
                 filter {
                     eq("case_study_id", caseStudyId)
                 }
@@ -66,26 +59,20 @@ class CaseStudyRemoteDataSource {
     }
 
     suspend fun getBookmarksForCaseStudy(caseStudyId: String): List<BookmarkDto> {
-        return SupabaseClient.client.from("case_study_bookmarks")
-            .select(columns = Columns.raw("id, case_study_id, user_id")) {
-                filter {
-                    eq("case_study_id", caseStudyId)
-                }
-            }.decodeList()
+        return emptyList()
     }
 
     suspend fun addReaction(caseStudyId: String, userId: String, reactionType: String) {
-        SupabaseClient.client.from("case_study_reactions").insert(
+        SupabaseClient.client.from("case_study_inspirations").insert(
             mapOf(
                 "case_study_id" to caseStudyId,
-                "user_id" to userId,
-                "reaction_type" to reactionType
+                "user_id" to userId
             )
         )
     }
 
     suspend fun removeReaction(caseStudyId: String, userId: String) {
-        SupabaseClient.client.from("case_study_reactions").delete {
+        SupabaseClient.client.from("case_study_inspirations").delete {
             filter {
                 eq("case_study_id", caseStudyId)
                 eq("user_id", userId)
@@ -94,21 +81,11 @@ class CaseStudyRemoteDataSource {
     }
 
     suspend fun addBookmark(caseStudyId: String, userId: String) {
-        SupabaseClient.client.from("case_study_bookmarks").insert(
-            mapOf(
-                "case_study_id" to caseStudyId,
-                "user_id" to userId
-            )
-        )
+        // Bookmarks table does not exist in new schema, ignore
     }
 
     suspend fun removeBookmark(caseStudyId: String, userId: String) {
-        SupabaseClient.client.from("case_study_bookmarks").delete {
-            filter {
-                eq("case_study_id", caseStudyId)
-                eq("user_id", userId)
-            }
-        }
+        // Bookmarks table does not exist in new schema, ignore
     }
 
     suspend fun getCaseStudiesByUser(authorUserId: String): List<CaseStudyDto> {
@@ -132,17 +109,14 @@ class CaseStudyRemoteDataSource {
         additionalImageUrls: List<String>,
         authorUserId: String
     ) {
-        val slug = title.lowercase()
-            .replace(Regex("[^a-z0-9\\s-]"), "")
-            .replace(Regex("\\s+"), "-")
-            .trim('-') + "-" + java.util.UUID.randomUUID().toString().take(6)
-            
-        val contentBlocks = kotlinx.serialization.json.buildJsonObject {
-            put("schema_version", kotlinx.serialization.json.JsonPrimitive(1))
-            put("blocks", kotlinx.serialization.json.buildJsonArray {
+        val contentObj = kotlinx.serialization.json.buildJsonObject {
+            put("version", kotlinx.serialization.json.JsonPrimitive(1))
+            put("sections", kotlinx.serialization.json.buildJsonArray {
                 add(kotlinx.serialization.json.buildJsonObject {
-                    put("type", kotlinx.serialization.json.JsonPrimitive("paragraph"))
-                    put("text", kotlinx.serialization.json.JsonPrimitive(detailedContent))
+                    put("heading", kotlinx.serialization.json.JsonPrimitive("Introduction"))
+                    put("headingImage", kotlinx.serialization.json.JsonPrimitive(""))
+                    put("description", kotlinx.serialization.json.JsonPrimitive(detailedContent))
+                    put("subHeadings", kotlinx.serialization.json.buildJsonArray {})
                 })
             })
         }
@@ -152,15 +126,9 @@ class CaseStudyRemoteDataSource {
                 "title" to title,
                 "short_description" to shortDescription,
                 "cover_image_url" to coverImageUrl,
-                "slug" to slug,
                 "author_user_id" to authorUserId,
-                "author_type" to "user",
-                "status" to "under_review",
-                "language" to language.lowercase(),
-                "tags" to tags,
-                "read_time_minutes" to readTimeMinutes,
-                "additional_image_urls" to additionalImageUrls,
-                "content_blocks" to contentBlocks
+                "status" to "published",
+                "content" to contentObj
             )
         )
     }

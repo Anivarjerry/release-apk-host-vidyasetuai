@@ -9,6 +9,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import io.github.jan.supabase.auth.auth
 
 object SupabaseStorageHelper {
     private val client = OkHttpClient()
@@ -20,9 +21,13 @@ object SupabaseStorageHelper {
         Log.d("SupabaseStorage", "Uploading image to url: '$url'")
         val requestBody = bytes.toRequestBody("image/jpeg".toMediaType())
 
+        // Get the active authenticated session's token (JWT) to satisfy RLS policies
+        val sessionToken = SupabaseClient.client.auth.currentSessionOrNull()?.accessToken
+        val token = sessionToken ?: BuildConfig.SUPABASE_ANON_KEY
+
         val request = Request.Builder()
             .url(url)
-            .header("Authorization", "Bearer ${BuildConfig.SUPABASE_ANON_KEY}")
+            .header("Authorization", "Bearer $token")
             .header("apikey", BuildConfig.SUPABASE_ANON_KEY)
             .put(requestBody)
             .build()

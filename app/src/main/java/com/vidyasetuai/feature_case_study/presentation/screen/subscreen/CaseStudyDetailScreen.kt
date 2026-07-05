@@ -25,13 +25,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.composables.icons.lucide.ArrowLeft
-import com.composables.icons.lucide.Bookmark
 import com.composables.icons.lucide.Clock
 import com.composables.icons.lucide.Lucide
-import com.composables.icons.lucide.ThumbsUp
+import com.composables.icons.lucide.Lightbulb
 import com.vidyasetuai.core.database.AppDatabase
 import com.vidyasetuai.core.ui.colors.AppColors
-import com.vidyasetuai.feature_case_study.data.local.datasource.CaseStudyLocalDataSource
 import com.vidyasetuai.feature_case_study.data.remote.datasource.CaseStudyRemoteDataSource
 import com.vidyasetuai.feature_case_study.data.repository.CaseStudyRepositoryImpl
 import com.vidyasetuai.feature_case_study.domain.usecase.GetCaseStudyDetailUseCase
@@ -55,9 +53,8 @@ fun CaseStudyDetailScreen(
     val context = LocalContext.current
     val viewModel = remember {
         val db = AppDatabase.getDatabase(context)
-        val localDS = CaseStudyLocalDataSource(db.caseStudyDao())
         val remoteDS = CaseStudyRemoteDataSource()
-        val repo = CaseStudyRepositoryImpl(localDS, remoteDS)
+        val repo = CaseStudyRepositoryImpl(remoteDS)
         val detailUseCase = GetCaseStudyDetailUseCase(repo)
         val reactionUseCase = ToggleReactionUseCase(repo)
         val bookmarkUseCase = ToggleBookmarkUseCase(repo)
@@ -132,7 +129,7 @@ fun CaseStudyDetailScreen(
                             .fillMaxWidth()
                             .height(56.dp)
                             .padding(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(
@@ -141,35 +138,21 @@ fun CaseStudyDetailScreen(
                                 .clickable {
                                     viewModel.onEvent(CaseStudyEvent.ToggleReaction(caseStudy.id), userId)
                                 }
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(
-                                imageVector = Lucide.ThumbsUp,
+                                imageVector = Lucide.Lightbulb,
                                 contentDescription = "Reaction",
-                                tint = if (caseStudy.isReacted) AppColors.EmeraldGreen else Color(0xFF8E8E93),
+                                tint = if (caseStudy.isReacted) Color(0xFFF59E0B) else Color(0xFF8E8E93),
                                 modifier = Modifier.size(22.dp)
                             )
                             Text(
                                 text = if (caseStudy.reactionCount > 0) "${caseStudy.reactionCount} Inspired" else "Inspired",
-                                fontSize = 13.sp,
+                                fontSize = 14.sp,
                                 fontWeight = if (caseStudy.isReacted) FontWeight.SemiBold else FontWeight.Normal,
-                                color = if (caseStudy.isReacted) AppColors.EmeraldGreen else Color(0xFF8E8E93)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = {
-                                viewModel.onEvent(CaseStudyEvent.ToggleBookmark(caseStudy.id), userId)
-                            },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                imageVector = Lucide.Bookmark,
-                                contentDescription = "Bookmark",
-                                tint = if (caseStudy.isBookmarked) AppColors.EmeraldGreen else Color(0xFF8E8E93),
-                                modifier = Modifier.size(22.dp)
+                                color = if (caseStudy.isReacted) Color(0xFFF59E0B) else Color(0xFF8E8E93)
                             )
                         }
                     }

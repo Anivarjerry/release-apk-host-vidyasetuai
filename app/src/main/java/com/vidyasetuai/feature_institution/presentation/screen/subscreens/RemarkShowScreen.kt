@@ -129,19 +129,6 @@ fun RemarkShowScreen(
                 )
             }
         },
-        floatingActionButton = {
-            // Only Staff can write new remarks
-            val isStaff = role != "Guardian" && role != "Student"
-            if (isStaff) {
-                FloatingActionButton(
-                    onClick = onNavigateToAddRemark,
-                    containerColor = AppColors.EmeraldGreen,
-                    contentColor = Color.White
-                ) {
-                    Icon(imageVector = Lucide.Plus, contentDescription = "Add Remark")
-                }
-            }
-        },
         containerColor = backgroundColor
     ) { innerPadding ->
         Box(

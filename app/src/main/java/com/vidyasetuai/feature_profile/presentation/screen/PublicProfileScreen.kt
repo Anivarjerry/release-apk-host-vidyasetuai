@@ -63,9 +63,8 @@ fun PublicProfileScreen(
         ProfileRepositoryImpl(localDS, remoteDS)
     }
     val caseStudyRepository = remember {
-        val localDS = com.vidyasetuai.feature_case_study.data.local.datasource.CaseStudyLocalDataSource(profileDb.caseStudyDao())
         val remoteDS = com.vidyasetuai.feature_case_study.data.remote.datasource.CaseStudyRemoteDataSource()
-        CaseStudyRepositoryImpl(localDS, remoteDS)
+        CaseStudyRepositoryImpl(remoteDS)
     }
     val experienceRepository = remember { ExperienceRepository() }
 

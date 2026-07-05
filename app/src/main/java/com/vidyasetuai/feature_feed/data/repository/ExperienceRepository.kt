@@ -8,7 +8,13 @@ import kotlinx.coroutines.withContext
 class ExperienceRepository(
     private val remoteDataSource: ExperienceRemoteDataSource = ExperienceRemoteDataSource()
 ) {
+    private var cachedExperiences: List<Experience>? = null
+
     suspend fun getExperiences(userId: String): Result<List<Experience>> = withContext(Dispatchers.IO) {
+        val cached = cachedExperiences
+        if (cached != null) {
+            return@withContext Result.success(cached)
+        }
         try {
             val dtos = remoteDataSource.getExperiences()
             val authorIds = dtos.map { it.author_user_id }.distinct()
@@ -32,8 +38,10 @@ class ExperienceRepository(
                     isAuthorVerified = profile?.is_verified ?: false
                 )
             }
+            cachedExperiences = experiences
             Result.success(experiences)
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             android.util.Log.e("ExperienceRepository", "Error fetching experiences", e)
             Result.failure(e)
         }
@@ -64,6 +72,7 @@ class ExperienceRepository(
             }
             Result.success(experiences)
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             android.util.Log.e("ExperienceRepository", "Error fetching experiences for user $authorUserId", e)
             Result.failure(e)
         }
@@ -78,8 +87,10 @@ class ExperienceRepository(
             } else {
                 remoteDataSource.addInspiration(experienceId, userId)
             }
+            cachedExperiences = null
             Result.success(Unit)
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             android.util.Log.e("ExperienceRepository", "Error toggling inspiration", e)
             Result.failure(e)
         }
@@ -88,8 +99,10 @@ class ExperienceRepository(
     suspend fun createExperience(title: String, description: String, coverImageUrl: String?, authorUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             remoteDataSource.createExperience(title, description, coverImageUrl, authorUserId)
+            cachedExperiences = null
             Result.success(Unit)
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             android.util.Log.e("ExperienceRepository", "Error creating experience", e)
             Result.failure(e)
         }

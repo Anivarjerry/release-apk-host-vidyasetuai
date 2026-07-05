@@ -14,7 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vidyasetuai.core.auth.SessionManager
 import com.vidyasetuai.core.ui.colors.AppColors
-import com.vidyasetuai.feature_case_study.presentation.screen.CaseStudyListScreen
+// import com.vidyasetuai.feature_case_study.presentation.screen.CaseStudyListScreen
 import com.vidyasetuai.feature_feed.presentation.viewmodel.ExperienceViewModel
 
 import com.composables.icons.lucide.Lucide
@@ -123,14 +123,16 @@ fun HomeScreen(
                 .weight(1f)
         ) {
             if (activeFeedTab == "case_studies") {
-                CaseStudyListScreen(
-                    userId = userId,
-                    onCaseStudyClick = onCaseStudyClick,
-                    currentLanguage = currentLanguage,
-                    onExploreClick = onExploreClick,
-                    onAuthorClick = onAuthorClick,
-                    modifier = Modifier.fillMaxSize()
-                )
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (isHindi) "केस स्टडीज आगामी सुविधा है" else "Case Studies is an upcoming feature",
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                        fontSize = 14.sp
+                    )
+                }
             } else {
                 ExperienceListScreen(
                     userId = userId,

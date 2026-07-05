@@ -5,9 +5,6 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
-import com.vidyasetuai.feature_case_study.data.local.dao.CaseStudyDao
-import com.vidyasetuai.feature_case_study.data.local.entity.CaseStudyDetailEntity
-import com.vidyasetuai.feature_case_study.data.local.entity.CaseStudyEntity
 import com.vidyasetuai.feature_profile.data.local.dao.UserProfileDao
 import com.vidyasetuai.feature_profile.data.local.entity.ContributorVerificationEntity
 import com.vidyasetuai.feature_profile.data.local.entity.UserProfileEntity
@@ -22,8 +19,6 @@ import com.vidyasetuai.feature_institution.data.local.entity.*
 
 @Database(
     entities = [
-        CaseStudyEntity::class,
-        CaseStudyDetailEntity::class,
         UserProfileEntity::class,
         ContributorVerificationEntity::class,
         GlobalJourneyTemplateEntity::class,
@@ -63,12 +58,11 @@ import com.vidyasetuai.feature_institution.data.local.entity.*
         LocalStudentExamMarkEntity::class,
         LocalBusRouteEntity::class
     ],
-    version = 26,
+    version = 27,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
-    abstract fun caseStudyDao(): CaseStudyDao
     abstract fun userProfileDao(): UserProfileDao
     abstract fun journeyDao(): JourneyDao
     abstract fun campusDao(): CampusDao

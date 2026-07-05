@@ -87,7 +87,6 @@ import com.vidyasetuai.feature_feed.presentation.viewmodel.ExperienceViewModel
 import com.vidyasetuai.feature_feed.presentation.event.ExperienceEvent
 import com.vidyasetuai.feature_campus.presentation.screen.CampusScreen
 import com.vidyasetuai.feature_campus.presentation.screen.ChatRoomScreen
-import com.vidyasetuai.feature_feed.presentation.screen.HomeScreen
 import com.vidyasetuai.feature_feed.presentation.screen.InstitutionEvent
 import com.vidyasetuai.feature_journey.presentation.screen.JourneyScreen
 import com.vidyasetuai.feature_feed.presentation.screen.NotificationEvent
@@ -112,6 +111,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import com.vidyasetuai.feature_institution.presentation.component.DashboardFloatingActionButton
 import com.vidyasetuai.feature_institution.util.DashboardFabRules
+import com.vidyasetuai.feature_case_study.presentation.screen.subscreen.AddCaseStudyFabSubScreen
+import com.vidyasetuai.feature_case_study.presentation.screen.subscreen.AddExperienceFabSubScreen
+import com.vidyasetuai.feature_case_study.presentation.screen.subscreen.QuicksFabSubScreen
+import com.vidyasetuai.feature_case_study.presentation.screen.desbord.HomeFeedDesbord
+import com.vidyasetuai.feature_institution.presentation.screen.subscreens.AddJourneyFabSubScreen
 
 data class NavState(
     val tab: String,
@@ -134,6 +138,7 @@ fun DashboardScreen(
 ) {
     val isHindi = currentLanguage == "hi"
     var activeTab by remember { mutableStateOf("home") }
+    var previousTabBeforeSubScreen by remember { mutableStateOf<String?>(null) }
     var selectedCaseStudyId by remember { mutableStateOf<String?>(null) }
     var selectedPublicProfileUserId by remember { mutableStateOf<String?>(null) }
     var inspirationsListUserId by remember { mutableStateOf<String?>(null) }
@@ -218,6 +223,7 @@ fun DashboardScreen(
             onNavTargetHandled()
         }
     }
+
     val context = androidx.compose.ui.platform.LocalContext.current
     val sessionManager = remember { com.vidyasetuai.core.auth.SessionManager(context) }
     val userId = sessionManager.getUserId() ?: ""
@@ -226,6 +232,14 @@ fun DashboardScreen(
     val db = remember { com.vidyasetuai.core.database.AppDatabase.getDatabase(context) }
     val repository = remember { com.vidyasetuai.feature_institution.data.repository.InstitutionRepositoryImpl(db.institutionDao()) }
     val institutionViewModel = remember(userId) { InstitutionViewModel(repository, context.applicationContext) }
+
+    val activeSubScreen = institutionViewModel.uiState.value.activeSubScreen
+    LaunchedEffect(activeSubScreen) {
+        if (activeSubScreen == null && previousTabBeforeSubScreen != null) {
+            selectTab(previousTabBeforeSubScreen!!)
+            previousTabBeforeSubScreen = null
+        }
+    }
     var connectionState by remember { mutableStateOf<ConnectionState?>(null) }
     val scope = rememberCoroutineScope()
     var isVerified by remember { mutableStateOf(false) }
@@ -281,9 +295,16 @@ fun DashboardScreen(
     }
 
     val caseStudyRepo = remember {
-        val localDS = com.vidyasetuai.feature_case_study.data.local.datasource.CaseStudyLocalDataSource(db.caseStudyDao())
         val remoteDS = com.vidyasetuai.feature_case_study.data.remote.datasource.CaseStudyRemoteDataSource()
-        com.vidyasetuai.feature_case_study.data.repository.CaseStudyRepositoryImpl(localDS, remoteDS)
+        com.vidyasetuai.feature_case_study.data.repository.CaseStudyRepositoryImpl(remoteDS)
+    }
+    
+    val experienceRepo = remember {
+        com.vidyasetuai.feature_feed.data.repository.ExperienceRepository()
+    }
+    
+    val quickRepo = remember {
+        com.vidyasetuai.feature_case_study.data.repository.QuickRepository()
     }
 
     var showUploadCaseStudyDialog by remember { mutableStateOf(false) }
@@ -529,7 +550,7 @@ fun DashboardScreen(
             }
         }
     } else {
-        val isSubScreenActive = activeTab == "institute" && institutionViewModel.uiState.value.activeSubScreen != null
+        val isSubScreenActive = institutionViewModel.uiState.value.activeSubScreen != null
         var isBrowsingTemplatesInJourney by remember { mutableStateOf(false) }
         
         Box(modifier = Modifier.fillMaxSize()) {
@@ -763,31 +784,67 @@ fun DashboardScreen(
                     .padding(if (isSubScreenActive) PaddingValues(0.dp) else innerPadding)
             ) {
                 when (activeTab) {
-                    "home" -> HomeScreen(
-                        currentLanguage = currentLanguage,
-                        experienceViewModel = experienceViewModel,
-                        onCaseStudyClick = { caseStudyId ->
-                            selectedCaseStudyId = caseStudyId
-                            navigateTo("case_study_detail")
-                        },
-                        onExploreClick = {
-                            // Handled inside CaseStudyListScreen onExploreClick
-                        },
-                        onUploadCaseStudyClick = {
-                            checkVerificationAndRun {
-                                showUploadCaseStudyDialog = true
+                    "home" -> {
+                        val activeSub = institutionViewModel.uiState.value.activeSubScreen
+                        if (activeSub in listOf("fab_add_case_study", "fab_add_experience", "fab_quicks")) {
+                            val state = institutionViewModel.uiState.value
+                            val isDark = when (currentTheme) {
+                                "dark" -> true
+                                "light" -> false
+                                else -> androidx.compose.foundation.isSystemInDarkTheme()
                             }
-                        },
-                        onUploadExperienceClick = {
-                            checkVerificationAndRun {
-                                showUploadExperienceDialog = true
+                            when (activeSub) {
+                                "fab_add_case_study" -> AddCaseStudyFabSubScreen(
+                                    state = state,
+                                    isHindi = isHindi,
+                                    isDark = isDark,
+                                    userId = userId,
+                                    repository = caseStudyRepo,
+                                    onBack = { institutionViewModel.onEvent(com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(null)) }
+                                )
+                                "fab_add_experience" -> AddExperienceFabSubScreen(
+                                    state = state,
+                                    isHindi = isHindi,
+                                    isDark = isDark,
+                                    userId = userId,
+                                    repository = experienceRepo,
+                                    onBack = { institutionViewModel.onEvent(com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(null)) }
+                                )
+                                "fab_quicks" -> QuicksFabSubScreen(
+                                    state = state,
+                                    isHindi = isHindi,
+                                    isDark = isDark,
+                                    userId = userId,
+                                    repository = quickRepo,
+                                    checkVerification = { onVerified -> checkVerificationAndRun { onVerified() } },
+                                    onBack = { institutionViewModel.onEvent(com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(null)) }
+                                )
                             }
-                        },
-                        onAuthorClick = { authorUserId ->
-                            selectedPublicProfileUserId = authorUserId
-                            navigateTo("public_profile")
+                        } else {
+                            com.vidyasetuai.feature_case_study.presentation.screen.desbord.HomeFeedDesbord(
+                                currentLanguage = currentLanguage,
+                                currentTheme = currentTheme,
+                                userId = userId,
+                                caseStudyRepo = caseStudyRepo,
+                                experienceRepo = experienceRepo,
+                                quickRepo = quickRepo,
+                                onNavigateToSubScreen = { route ->
+                                    if (route.startsWith("case_study_detail:")) {
+                                        val id = route.substringAfter("case_study_detail:")
+                                        selectedCaseStudyId = id
+                                        navigateTo("case_study_detail")
+                                    } else if (route == "fab_add_case_study" || route == "fab_add_experience") {
+                                        checkVerificationAndRun {
+                                            institutionViewModel.onEvent(com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(route))
+                                        }
+                                    } else {
+                                        institutionViewModel.onEvent(com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(route))
+                                    }
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
                         }
-                    )
+                    }
                     "institute" -> InstitutionEvent(
                         connectionState = connectionState,
                         onApprove = { approveConnection() },
@@ -797,44 +854,59 @@ fun DashboardScreen(
                         navTarget = navTarget
                     )
                     "journey" -> {
-                        val db = remember { com.vidyasetuai.core.database.AppDatabase.getDatabase(context) }
-                        val localSource = remember { com.vidyasetuai.feature_journey.data.local.datasource.JourneyLocalDataSource(db.journeyDao()) }
-                        val remoteSource = remember { com.vidyasetuai.feature_journey.data.remote.datasource.JourneyRemoteDataSource() }
-                        val repo = remember { com.vidyasetuai.feature_journey.data.repository.JourneyRepositoryImpl(localSource, remoteSource) }
+                        val activeSub = institutionViewModel.uiState.value.activeSubScreen
+                        if (activeSub == "fab_add_journey") {
+                            val isDark = when (currentTheme) {
+                                "dark" -> true
+                                "light" -> false
+                                else -> androidx.compose.foundation.isSystemInDarkTheme()
+                            }
+                            AddJourneyFabSubScreen(
+                                state = institutionViewModel.uiState.value,
+                                isHindi = isHindi,
+                                isDark = isDark,
+                                onBack = { institutionViewModel.onEvent(com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(null)) }
+                            )
+                        } else {
+                            val db = remember { com.vidyasetuai.core.database.AppDatabase.getDatabase(context) }
+                            val localSource = remember { com.vidyasetuai.feature_journey.data.local.datasource.JourneyLocalDataSource(db.journeyDao()) }
+                            val remoteSource = remember { com.vidyasetuai.feature_journey.data.remote.datasource.JourneyRemoteDataSource() }
+                            val repo = remember { com.vidyasetuai.feature_journey.data.repository.JourneyRepositoryImpl(localSource, remoteSource) }
 
-                        val getAvailableTemplates = remember { com.vidyasetuai.feature_journey.domain.usecase.GetAvailableTemplatesUseCase(repo) }
-                        val enroll = remember { com.vidyasetuai.feature_journey.domain.usecase.EnrollInJourneyUseCase(repo) }
-                        val getActive = remember { com.vidyasetuai.feature_journey.domain.usecase.GetActiveUserJourneyUseCase(repo) }
-                        val getTasks = remember { com.vidyasetuai.feature_journey.domain.usecase.GetDailyTasksUseCase(repo) }
-                        val getMcqs = remember { com.vidyasetuai.feature_journey.domain.usecase.GetDailyMCQsUseCase(repo) }
-                        val submitTask = remember { com.vidyasetuai.feature_journey.domain.usecase.SubmitTaskProgressUseCase(repo) }
-                        val submitMcq = remember { com.vidyasetuai.feature_journey.domain.usecase.SubmitMCQAttemptUseCase(repo) }
-                        val getAnalytics = remember { com.vidyasetuai.feature_journey.domain.usecase.GetJourneyAnalyticsUseCase(repo) }
-                        val getLeaderboard = remember { com.vidyasetuai.feature_journey.domain.usecase.GetJourneyLeaderboardUseCase(repo) }
+                            val getAvailableTemplates = remember { com.vidyasetuai.feature_journey.domain.usecase.GetAvailableTemplatesUseCase(repo) }
+                            val enroll = remember { com.vidyasetuai.feature_journey.domain.usecase.EnrollInJourneyUseCase(repo) }
+                            val getActive = remember { com.vidyasetuai.feature_journey.domain.usecase.GetActiveUserJourneyUseCase(repo) }
+                            val getTasks = remember { com.vidyasetuai.feature_journey.domain.usecase.GetDailyTasksUseCase(repo) }
+                            val getMcqs = remember { com.vidyasetuai.feature_journey.domain.usecase.GetDailyMCQsUseCase(repo) }
+                            val submitTask = remember { com.vidyasetuai.feature_journey.domain.usecase.SubmitTaskProgressUseCase(repo) }
+                            val submitMcq = remember { com.vidyasetuai.feature_journey.domain.usecase.SubmitMCQAttemptUseCase(repo) }
+                            val getAnalytics = remember { com.vidyasetuai.feature_journey.domain.usecase.GetJourneyAnalyticsUseCase(repo) }
+                            val getLeaderboard = remember { com.vidyasetuai.feature_journey.domain.usecase.GetJourneyLeaderboardUseCase(repo) }
 
-                        val journeyViewModel = remember(userId) {
-                            com.vidyasetuai.feature_journey.presentation.viewmodel.JourneyViewModel(
-                                userId = userId,
-                                repository = repo,
-                                getAvailableTemplatesUseCase = getAvailableTemplates,
-                                enrollInJourneyUseCase = enroll,
-                                getActiveUserJourneyUseCase = getActive,
-                                getDailyTasksUseCase = getTasks,
-                                getDailyMCQsUseCase = getMcqs,
-                                submitTaskProgressUseCase = submitTask,
-                                submitMCQAttemptUseCase = submitMcq,
-                                getJourneyAnalyticsUseCase = getAnalytics,
-                                getJourneyLeaderboardUseCase = getLeaderboard
+                            val journeyViewModel = remember(userId) {
+                                com.vidyasetuai.feature_journey.presentation.viewmodel.JourneyViewModel(
+                                    userId = userId,
+                                    repository = repo,
+                                    getAvailableTemplatesUseCase = getAvailableTemplates,
+                                    enrollInJourneyUseCase = enroll,
+                                    getActiveUserJourneyUseCase = getActive,
+                                    getDailyTasksUseCase = getTasks,
+                                    getDailyMCQsUseCase = getMcqs,
+                                    submitTaskProgressUseCase = submitTask,
+                                    submitMCQAttemptUseCase = submitMcq,
+                                    getJourneyAnalyticsUseCase = getAnalytics,
+                                    getJourneyLeaderboardUseCase = getLeaderboard
+                                )
+                            }
+
+                            JourneyScreen(
+                                viewModel = journeyViewModel,
+                                currentLanguage = currentLanguage,
+                                currentTheme = currentTheme,
+                                isBrowsingTemplates = isBrowsingTemplatesInJourney,
+                                onBrowsingTemplatesChange = { isBrowsingTemplatesInJourney = it }
                             )
                         }
-
-                        JourneyScreen(
-                            viewModel = journeyViewModel,
-                            currentLanguage = currentLanguage,
-                            currentTheme = currentTheme,
-                            isBrowsingTemplates = isBrowsingTemplatesInJourney,
-                            onBrowsingTemplatesChange = { isBrowsingTemplatesInJourney = it }
-                        )
                     }
                     "tournament" -> TournamentEvent(currentLanguage = currentLanguage, currentTheme = currentTheme)
                     "profile" -> ProfileScreen(
@@ -849,6 +921,12 @@ fun DashboardScreen(
                             inspirationsListUserId = targetId
                             inspirationsDefaultTab = tabIndex
                             navigateTo("inspirations_list")
+                        },
+                        onEditModeChange = { editing ->
+                            val route = if (editing) "edit_profile" else null
+                            institutionViewModel.onEvent(
+                                com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(route)
+                            )
                         }
                     )
                 }
@@ -1001,10 +1079,34 @@ fun DashboardScreen(
                                     showUploadExperienceDialog = true
                                 }
                             }
+                            "fab_add_case_study" -> {
+                                checkVerificationAndRun {
+                                    institutionViewModel.onEvent(
+                                        com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(route)
+                                    )
+                                }
+                            }
+                            "fab_add_experience" -> {
+                                checkVerificationAndRun {
+                                    institutionViewModel.onEvent(
+                                        com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(route)
+                                    )
+                                }
+                            }
                             "add_journey" -> {
                                 isBrowsingTemplatesInJourney = true
                             }
                             else -> {
+                                val isHomeOrJourneyRoute = route in listOf(
+                                    "fab_add_case_study",
+                                    "fab_add_experience",
+                                    "fab_quicks",
+                                    "fab_add_journey"
+                                )
+                                if (!isHomeOrJourneyRoute && activeTab != "institute") {
+                                    previousTabBeforeSubScreen = activeTab
+                                    selectTab("institute")
+                                }
                                 institutionViewModel.onEvent(
                                     com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(route)
                                 )
@@ -1629,12 +1731,12 @@ fun UploadExperienceDialog(
         uri?.let {
             val bytes = context.contentResolver.openInputStream(uri)?.readBytes()
             if (bytes != null) {
-                val fileName = "experience_${System.currentTimeMillis()}.jpg"
+                val fileName = "experiences/experience_${System.currentTimeMillis()}.jpg"
                 scope.launch {
                     isUploading = true
                     try {
                         val publicUrl =
-                            SupabaseStorageHelper.uploadImage("users_cover_image", fileName, bytes)
+                            SupabaseStorageHelper.uploadImage("media", fileName, bytes)
                         coverImageUrl = publicUrl
                     } catch (e: Exception) {
                         android.util.Log.e("UploadDialog", "Failed to upload experience image", e)

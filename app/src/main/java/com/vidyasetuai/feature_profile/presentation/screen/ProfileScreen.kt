@@ -25,12 +25,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.composables.icons.lucide.Check
-import com.composables.icons.lucide.CircleAlert
-import com.composables.icons.lucide.Lucide
-import com.composables.icons.lucide.User
-import com.composables.icons.lucide.ArrowLeft
-import com.composables.icons.lucide.Camera
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.BorderStroke
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import com.composables.icons.lucide.*
 import coil.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
 import android.graphics.Bitmap
@@ -56,77 +60,66 @@ import com.vidyasetuai.feature_feed.domain.model.Experience
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private fun processProfileImage(context: android.content.Context, uri: Uri): ByteArray? {
+private fun cropBitmapWithTransform(
+    context: android.content.Context,
+    uri: Uri,
+    isProfile: Boolean,
+    scale: Float,
+    offsetX: Float,
+    offsetY: Float,
+    containerWidthPx: Int,
+    containerHeightPx: Int
+): ByteArray? {
     return try {
-        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
-        val options = BitmapFactory.Options().apply {
-            inPreferredConfig = Bitmap.Config.ARGB_8888
-        }
-        val originalBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return null
-        val width = originalBitmap.width
-        val height = originalBitmap.height
-        val squareSize = if (width < height) width else height
-        val x = (width - squareSize) / 2
-        val y = (height - squareSize) / 2
+        val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+        val originalBitmap = BitmapFactory.decodeStream(inputStream) ?: return null
         
-        val cropped = Bitmap.createBitmap(originalBitmap, x, y, squareSize, squareSize)
-        val scaled = Bitmap.createScaledBitmap(cropped, 400, 400, true)
+        val bmpWidth = originalBitmap.width
+        val bmpHeight = originalBitmap.height
+        
+        val targetWidth = if (isProfile) 400 else 960
+        val targetHeight = if (isProfile) 400 else 540
+        
+        val croppedBitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(croppedBitmap)
+        
+        canvas.drawColor(android.graphics.Color.WHITE)
+        
+        val matrix = android.graphics.Matrix()
+        
+        val fitScale = Math.max(targetWidth.toFloat() / bmpWidth, targetHeight.toFloat() / bmpHeight)
+        
+        val dxBase = (targetWidth - bmpWidth * fitScale) / 2f
+        val dyBase = (targetHeight - bmpHeight * fitScale) / 2f
+        
+        matrix.postScale(fitScale, fitScale)
+        matrix.postTranslate(dxBase, dyBase)
+        
+        matrix.postScale(scale, scale, targetWidth / 2f, targetHeight / 2f)
+        
+        val density = context.resources.displayMetrics.density
+        val displayWidth = context.resources.displayMetrics.widthPixels
+        val approxContainerWidth = displayWidth - (32 * density)
+        
+        val scaleOffsetFactor = targetWidth.toFloat() / approxContainerWidth
+        val finalOffsetX = offsetX * scaleOffsetFactor
+        val finalOffsetY = offsetY * scaleOffsetFactor
+        
+        matrix.postTranslate(finalOffsetX, finalOffsetY)
+        
+        val paint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
+        canvas.drawBitmap(originalBitmap, matrix, paint)
         
         val outputStream = ByteArrayOutputStream()
-        scaled.compress(Bitmap.CompressFormat.JPEG, 85, outputStream)
+        croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 85, outputStream)
         val resultBytes = outputStream.toByteArray()
         
-        if (cropped != scaled) cropped.recycle()
-        if (originalBitmap != cropped) originalBitmap.recycle()
-        scaled.recycle()
+        originalBitmap.recycle()
+        croppedBitmap.recycle()
         
         resultBytes
     } catch (e: Exception) {
-        android.util.Log.e("ProfileScreen", "Error processing profile image", e)
-        null
-    }
-}
-
-private fun processCoverImage(context: android.content.Context, uri: Uri): ByteArray? {
-    return try {
-        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
-        val options = BitmapFactory.Options().apply {
-            inPreferredConfig = Bitmap.Config.ARGB_8888
-        }
-        val originalBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return null
-        val width = originalBitmap.width
-        val height = originalBitmap.height
-        
-        val targetRatio = 16f / 9f
-        val currentRatio = width.toFloat() / height.toFloat()
-        
-        val cropWidth: Int
-        val cropHeight: Int
-        if (currentRatio > targetRatio) {
-            cropHeight = height
-            cropWidth = (height * targetRatio).toInt()
-        } else {
-            cropWidth = width
-            cropHeight = (width / targetRatio).toInt()
-        }
-        
-        val x = (width - cropWidth) / 2
-        val y = (height - cropHeight) / 2
-        
-        val cropped = Bitmap.createBitmap(originalBitmap, x, y, cropWidth, cropHeight)
-        val scaled = Bitmap.createScaledBitmap(cropped, 960, 540, true)
-        
-        val outputStream = ByteArrayOutputStream()
-        scaled.compress(Bitmap.CompressFormat.JPEG, 85, outputStream)
-        val resultBytes = outputStream.toByteArray()
-        
-        if (cropped != scaled) cropped.recycle()
-        if (originalBitmap != cropped) originalBitmap.recycle()
-        scaled.recycle()
-        
-        resultBytes
-    } catch (e: Exception) {
-        android.util.Log.e("ProfileScreen", "Error processing cover image", e)
+        android.util.Log.e("ProfileScreen", "Error cropping bitmap on canvas", e)
         null
     }
 }
@@ -291,6 +284,7 @@ fun ProfileScreen(
     viewModel: ProfileViewModel,
     onCaseStudyClick: (String) -> Unit = {},
     onInspirationsClick: (String, Int) -> Unit = { _, _ -> },
+    onEditModeChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -307,12 +301,19 @@ fun ProfileScreen(
     val state by viewModel.uiState.collectAsState()
 
     var isEditMode by remember { mutableStateOf(false) }
+    val setEditMode = { value: Boolean ->
+        isEditMode = value
+        onEditModeChange(value)
+    }
+
+    androidx.activity.compose.BackHandler(enabled = isEditMode) {
+        setEditMode(false)
+    }
 
     val profileDb = remember { AppDatabase.getDatabase(context) }
     val caseStudyRepository = remember {
-        val localDS = com.vidyasetuai.feature_case_study.data.local.datasource.CaseStudyLocalDataSource(profileDb.caseStudyDao())
         val remoteDS = com.vidyasetuai.feature_case_study.data.remote.datasource.CaseStudyRemoteDataSource()
-        CaseStudyRepositoryImpl(localDS, remoteDS)
+        CaseStudyRepositoryImpl(remoteDS)
     }
     val experienceRepository = remember { ExperienceRepository() }
 
@@ -321,12 +322,12 @@ fun ProfileScreen(
             if (state.userCaseStudies.isEmpty() && state.userExperiences.isEmpty()) {
                 viewModel.onEvent(ProfileEvent.SetUserUploadedLoading(true))
             }
-            scope.launch {
+            launch {
                 caseStudyRepository.getUserUploadedCaseStudies(userId).onSuccess { list ->
                     viewModel.onEvent(ProfileEvent.UpdateUserCaseStudies(list))
                 }
             }
-            scope.launch {
+            launch {
                 experienceRepository.getExperiencesByUser(userId, userId).onSuccess { list ->
                     viewModel.onEvent(ProfileEvent.UpdateUserExperiences(list))
                 }
@@ -355,7 +356,7 @@ fun ProfileScreen(
                 isHindi = isHindi,
                 onInspirationsClick = onInspirationsClick,
                 onCaseStudyClick = onCaseStudyClick,
-                onEditModeChange = { isEditMode = it },
+                onEditModeChange = { setEditMode(it) },
                 onExperienceReactionClick = { exp ->
                     scope.launch {
                         experienceRepository.toggleInspiration(exp.id, userId)
@@ -389,7 +390,7 @@ fun ProfileScreen(
                 state = state,
                 isHindi = isHindi,
                 isDark = isDark,
-                onBackClick = { isEditMode = false },
+                onBackClick = { setEditMode(false) },
                 onCheckUsername = { username ->
                     viewModel.onEvent(ProfileEvent.CheckUsername(username, userId))
                 },
@@ -410,7 +411,7 @@ fun ProfileScreen(
                             preferredLanguage = preferredLang
                         )
                     )
-                    isEditMode = false
+                    setEditMode(false)
                 },
                 onApplyVerificationClick = { note ->
                     viewModel.onEvent(ProfileEvent.ApplyVerification(note))
@@ -765,7 +766,16 @@ fun ProfileEditMode(
     var dob by remember(state.profile) { mutableStateOf(state.profile?.dateOfBirth ?: "") }
     var profilePicUrl by remember(state.profile) { mutableStateOf(state.profile?.profilePictureUrl ?: "") }
     var coverPhotoUrl by remember(state.profile) { mutableStateOf(state.profile?.coverPhotoUrl ?: "") }
-    var preferredLang by remember(state.profile) { mutableStateOf(state.profile?.preferredLanguage ?: "") }
+
+    val preferredLangsList = remember(state.profile) {
+        mutableStateListOf<String>().apply {
+            val dbLang = state.profile?.preferredLanguage ?: ""
+            if (dbLang.isNotBlank()) {
+                addAll(dbLang.split(",").map { it.trim() }.filter { it.isNotEmpty() })
+            }
+        }
+    }
+    var langInputText by remember { mutableStateOf("") }
 
     var isUsernameLocked by remember(state.profile) { mutableStateOf(!state.profile?.username.isNullOrEmpty()) }
     var showApplyForm by remember { mutableStateOf(false) }
@@ -775,25 +785,26 @@ fun ProfileEditMode(
     var isUploadingProfilePic by remember { mutableStateOf(false) }
     var isUploadingCoverPhoto by remember { mutableStateOf(false) }
 
+    // Cropping Dialog States
+    var imageToCropUri by remember { mutableStateOf<Uri?>(null) }
+    var isCroppingProfile by remember { mutableStateOf(false) }
+    var isCroppingCover by remember { mutableStateOf(false) }
+    var cropScale by remember { mutableStateOf(1f) }
+    var cropOffset by remember { mutableStateOf(Offset.Zero) }
+    val cropTransformState = rememberTransformableState { zoomChange, offsetChange, _ ->
+        cropScale = (cropScale * zoomChange).coerceIn(1f, 4f)
+        cropOffset += offsetChange
+    }
+
     val profilePicLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let {
-            scope.launch {
-                isUploadingProfilePic = true
-                try {
-                    val bytes = processProfileImage(context, uri)
-                    if (bytes != null) {
-                        val fileName = "profile_${userId}_${System.currentTimeMillis()}.jpg"
-                        val publicUrl = SupabaseStorageHelper.uploadImage("users_profile_image", fileName, bytes)
-                        profilePicUrl = publicUrl
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("ProfileScreen", "Failed to upload profile picture", e)
-                } finally {
-                    isUploadingProfilePic = false
-                }
-            }
+            imageToCropUri = uri
+            isCroppingProfile = true
+            isCroppingCover = false
+            cropScale = 1f
+            cropOffset = Offset.Zero
         }
     }
 
@@ -801,22 +812,37 @@ fun ProfileEditMode(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let {
-            scope.launch {
-                isUploadingCoverPhoto = true
-                try {
-                    val bytes = processCoverImage(context, uri)
-                    if (bytes != null) {
-                        val fileName = "cover_${userId}_${System.currentTimeMillis()}.jpg"
-                        val publicUrl = SupabaseStorageHelper.uploadImage("users_cover_image", fileName, bytes)
-                        coverPhotoUrl = publicUrl
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("ProfileScreen", "Failed to upload cover photo", e)
-                } finally {
-                    isUploadingCoverPhoto = false
-                }
-            }
+            imageToCropUri = uri
+            isCroppingProfile = false
+            isCroppingCover = true
+            cropScale = 1f
+            cropOffset = Offset.Zero
         }
+    }
+
+    val showDatePicker = {
+        val calendar = java.util.Calendar.getInstance()
+        if (dob.isNotEmpty()) {
+            try {
+                val parts = dob.split("-")
+                if (parts.size == 3) {
+                    calendar.set(java.util.Calendar.YEAR, parts[0].toInt())
+                    calendar.set(java.util.Calendar.MONTH, parts[1].toInt() - 1)
+                    calendar.set(java.util.Calendar.DAY_OF_MONTH, parts[2].toInt())
+                }
+            } catch (e: Exception) {}
+        }
+        android.app.DatePickerDialog(
+            context,
+            { _, year, month, dayOfMonth ->
+                val formattedMonth = String.format("%02d", month + 1)
+                val formattedDay = String.format("%02d", dayOfMonth)
+                dob = "$year-$formattedMonth-$formattedDay"
+            },
+            calendar.get(java.util.Calendar.YEAR),
+            calendar.get(java.util.Calendar.MONTH),
+            calendar.get(java.util.Calendar.DAY_OF_MONTH)
+        ).show()
     }
 
     LaunchedEffect(username, isUsernameLocked) {
@@ -836,6 +862,8 @@ fun ProfileEditMode(
     val isUsernameFormatValid = username.isEmpty() || username.matches(Regex("^[a-zA-Z0-9_]{3,15}$"))
     val isDobValid = dob.isEmpty() || dob.matches(Regex("^\\d{4}-\\d{2}-\\d{2}$"))
 
+    val preferredLangSerialized = preferredLangsList.joinToString(",")
+
     val isFormChanged = state.profile?.let {
         firstName.trim() != (it.firstName ?: "") ||
         lastName.trim() != (it.lastName ?: "") ||
@@ -845,7 +873,7 @@ fun ProfileEditMode(
         dob.trim() != (it.dateOfBirth ?: "") ||
         profilePicUrl.trim() != (it.profilePictureUrl ?: "") ||
         coverPhotoUrl.trim() != (it.coverPhotoUrl ?: "") ||
-        preferredLang.trim() != (it.preferredLanguage ?: "")
+        preferredLangSerialized.trim() != (it.preferredLanguage ?: "")
     } ?: false
 
     val isSaveEnabled = isFormChanged && 
@@ -857,6 +885,7 @@ fun ProfileEditMode(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .imePadding()
             .verticalScroll(scrollState)
             .padding(bottom = 32.dp)
     ) {
@@ -932,11 +961,11 @@ fun ProfileEditMode(
             )
             Spacer(modifier = Modifier.height(6.dp))
             Box(modifier = Modifier.fillMaxWidth()) {
-                val displayGender = when (gender) {
-                    "Male" -> if (isHindi) "पुरुष" else "Male"
-                    "Female" -> if (isHindi) "महिला" else "Female"
-                    "Other" -> if (isHindi) "अन्य" else "Other"
-                    "Unspecified" -> if (isHindi) "अनिर्दिष्ट" else "Unspecified"
+                val displayGender = when (gender.lowercase()) {
+                    "male" -> if (isHindi) "पुरुष" else "Male"
+                    "female" -> if (isHindi) "महिला" else "Female"
+                    "other" -> if (isHindi) "अन्य" else "Other"
+                    "unspecified" -> if (isHindi) "अनिर्दिष्ट" else "Unspecified"
                     else -> gender
                 }
                 Text(
@@ -979,24 +1008,99 @@ fun ProfileEditMode(
             )
         }
 
-        ProfileEditRow(
-            label = if (isHindi) "जन्म तिथि (YYYY-MM-DD)" else "Date of Birth (YYYY-MM-DD)",
-            value = dob,
-            onValueChange = { dob = it },
-            placeholder = if (isHindi) "उदा. 2000-01-01" else "e.g., 2000-01-01",
-            errorText = if (!isDobValid) {
-                if (isHindi) "तिथि का प्रारूप YYYY-MM-DD होना चाहिए" else "Date must match format YYYY-MM-DD"
-            } else null,
-            isDark = isDark
-        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { showDatePicker() }
+        ) {
+            ProfileEditRow(
+                label = if (isHindi) "जन्म तिथि (YYYY-MM-DD)" else "Date of Birth (YYYY-MM-DD)",
+                value = dob,
+                onValueChange = {},
+                placeholder = if (isHindi) "उदा. 2000-01-01" else "e.g., 2000-01-01",
+                errorText = if (!isDobValid) {
+                    if (isHindi) "तिथि का प्रारूप YYYY-MM-DD होना चाहिए" else "Date must match format YYYY-MM-DD"
+                } else null,
+                isDark = isDark,
+                readOnly = true,
+                trailingContent = {
+                    IconButton(
+                        onClick = { showDatePicker() },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Lucide.Calendar,
+                            contentDescription = "Select Date",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                },
+                modifier = Modifier.clickable { showDatePicker() }
+            )
+        }
 
         ProfileEditRow(
             label = if (isHindi) "पसंदीदा सीखने की भाषा" else "Preferred Learning Language",
-            value = preferredLang,
-            onValueChange = { preferredLang = it },
-            placeholder = if (isHindi) "उदा. हिंदी, इंग्लिश" else "e.g., Hindi, English",
+            value = langInputText,
+            onValueChange = { text ->
+                if (text.endsWith(" ") || text.endsWith(",")) {
+                    val cleanWord = text.replace(",", "").trim()
+                    if (cleanWord.isNotEmpty() && !preferredLangsList.contains(cleanWord)) {
+                        val potentialSerialized = (preferredLangsList + cleanWord).joinToString(",")
+                        if (potentialSerialized.length <= 10) {
+                            preferredLangsList.add(cleanWord)
+                            langInputText = ""
+                        } else {
+                            android.widget.Toast.makeText(context, if (isHindi) "अधिकतम 10 अक्षर!" else "Max 10 characters!", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        langInputText = ""
+                    }
+                } else {
+                    langInputText = text
+                }
+            },
+            placeholder = if (isHindi) "भाषा टाइप करें और स्पेस दबाएं (उदा. English )" else "Type language and press space (e.g. English )",
             isDark = isDark
         )
+
+        if (preferredLangsList.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                preferredLangsList.forEach { lang ->
+                    Box(
+                        modifier = Modifier
+                            .background(AppColors.EmeraldGreen.copy(alpha = 0.1f), RoundedCornerShape(16.dp))
+                            .border(1.dp, AppColors.EmeraldGreen.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = lang,
+                                fontSize = 12.sp,
+                                color = AppColors.EmeraldGreen,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                imageVector = Lucide.X,
+                                contentDescription = "Remove",
+                                tint = AppColors.EmeraldGreen,
+                                modifier = Modifier
+                                    .size(12.dp)
+                                    .clickable { preferredLangsList.remove(lang) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
         Text(
@@ -1140,7 +1244,8 @@ fun ProfileEditMode(
             value = bio,
             onValueChange = { bio = it },
             placeholder = if (isHindi) "अपनी पढ़ाई या शिक्षण लक्ष्यों के बारे में बताएं..." else "Tell us about your studies or teaching goals...",
-            isDark = isDark
+            isDark = isDark,
+            isHindi = isHindi
         )
 
         Spacer(modifier = Modifier.height(20.dp))
@@ -1152,11 +1257,11 @@ fun ProfileEditMode(
                     lastName,
                     bio,
                     username,
-                    if (gender == "Unspecified") null else gender,
+                    if (gender == "Unspecified") null else gender.lowercase(),
                     if (dob.isBlank()) null else dob,
                     if (profilePicUrl.isBlank()) null else profilePicUrl,
                     if (coverPhotoUrl.isBlank()) null else coverPhotoUrl,
-                    if (preferredLang.isBlank()) null else preferredLang
+                    if (preferredLangSerialized.isBlank()) null else preferredLangSerialized
                 )
             },
             enabled = isSaveEnabled && !state.isLoading,
@@ -1454,6 +1559,179 @@ fun ProfileEditMode(
             }
         }
     }
+
+    if (imageToCropUri != null) {
+        val isProfile = isCroppingProfile
+        Dialog(onDismissRequest = { 
+            imageToCropUri = null
+            isCroppingProfile = false
+            isCroppingCover = false
+            cropScale = 1f
+            cropOffset = Offset.Zero
+        }) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = if (isProfile) {
+                            if (isHindi) "प्रोफ़ाइल फोटो क्रॉप करें" else "Crop Profile Photo"
+                        } else {
+                            if (isHindi) "कवर फोटो क्रॉप करें" else "Crop Cover Photo"
+                        },
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(if (isProfile) 1f else 16f / 9f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.Black),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AsyncImage(
+                            model = imageToCropUri,
+                            contentDescription = "Crop Preview",
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .transformable(state = cropTransformState)
+                                .graphicsLayer(
+                                    scaleX = cropScale,
+                                    scaleY = cropScale,
+                                    translationX = cropOffset.x,
+                                    translationY = cropOffset.y
+                                ),
+                            contentScale = ContentScale.Fit
+                        )
+                        
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .border(
+                                    2.dp, 
+                                    Color.White.copy(alpha = 0.8f), 
+                                    if (isProfile) CircleShape else RectangleShape
+                                )
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "—",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+                        Slider(
+                            value = cropScale,
+                            onValueChange = { cropScale = it },
+                            valueRange = 1f..4f,
+                            modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                            colors = SliderDefaults.colors(
+                                thumbColor = AppColors.EmeraldGreen,
+                                activeTrackColor = AppColors.EmeraldGreen
+                            )
+                        )
+                        Text(
+                            text = "+",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(24.dp))
+                    
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                imageToCropUri = null
+                                isCroppingProfile = false
+                                isCroppingCover = false
+                                cropScale = 1f
+                                cropOffset = Offset.Zero
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(text = if (isHindi) "रद्द करें" else "Cancel")
+                        }
+                        
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    if (isProfile) isUploadingProfilePic = true else isUploadingCoverPhoto = true
+                                    val uri = imageToCropUri!!
+                                    imageToCropUri = null
+                                    
+                                    val croppedBytes = withContext(Dispatchers.IO) {
+                                        cropBitmapWithTransform(
+                                            context = context,
+                                            uri = uri,
+                                            isProfile = isProfile,
+                                            scale = cropScale,
+                                            offsetX = cropOffset.x,
+                                            offsetY = cropOffset.y,
+                                            containerWidthPx = 1080,
+                                            containerHeightPx = if (isProfile) 1080 else 607
+                                        )
+                                    }
+                                    
+                                    if (croppedBytes != null) {
+                                        val timestamp = System.currentTimeMillis()
+                                        if (isProfile) {
+                                            val fileName = "profiles/profile_${userId}_$timestamp.jpg"
+                                            val publicUrl = SupabaseStorageHelper.uploadImage("user_profile_media", fileName, croppedBytes)
+                                            profilePicUrl = publicUrl
+                                            isUploadingProfilePic = false
+                                        } else {
+                                            val fileName = "profiles/cover_${userId}_$timestamp.jpg"
+                                            val publicUrl = SupabaseStorageHelper.uploadImage("user_profile_media", fileName, croppedBytes)
+                                            coverPhotoUrl = publicUrl
+                                            isUploadingCoverPhoto = false
+                                        }
+                                    } else {
+                                        isUploadingProfilePic = false
+                                        isUploadingCoverPhoto = false
+                                    }
+                                    
+                                    isCroppingProfile = false
+                                    isCroppingCover = false
+                                    cropScale = 1f
+                                    cropOffset = Offset.Zero
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = AppColors.EmeraldGreen),
+                            modifier = Modifier.weight(1.2f)
+                        ) {
+                            Text(text = if (isHindi) "क्रॉप और सेव" else "Crop & Save", color = Color.White)
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -1465,6 +1743,7 @@ fun ProfileEditRow(
     placeholder: String = "",
     errorText: String? = null,
     isDark: Boolean = false,
+    readOnly: Boolean = false,
     trailingContent: (@Composable () -> Unit)? = null
 ) {
     Column(
@@ -1488,6 +1767,7 @@ fun ProfileEditRow(
                 onValueChange = onValueChange,
                 modifier = Modifier.weight(1f),
                 singleLine = true,
+                readOnly = readOnly,
                 textStyle = TextStyle(
                     color = MaterialTheme.colorScheme.onBackground,
                     fontSize = 16.sp
@@ -1531,7 +1811,9 @@ fun ProfileBioRow(
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
     placeholder: String = "",
-    isDark: Boolean = false
+    isDark: Boolean = false,
+    maxLength: Int = 250,
+    isHindi: Boolean = false
 ) {
     Column(
         modifier = modifier
@@ -1539,7 +1821,7 @@ fun ProfileBioRow(
             .padding(horizontal = 16.dp, vertical = 10.dp)
     ) {
         Text(
-            text = if (isDark) "Academic Bio" else "Academic Bio",
+            text = if (isHindi) "अकादमिक बायो" else "Academic Bio",
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1547,7 +1829,11 @@ fun ProfileBioRow(
         Spacer(modifier = Modifier.height(6.dp))
         BasicTextField(
             value = value,
-            onValueChange = onValueChange,
+            onValueChange = {
+                if (it.length <= maxLength) {
+                    onValueChange(it)
+                }
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 60.dp),
@@ -1566,7 +1852,15 @@ fun ProfileBioRow(
                 innerTextField()
             }
         )
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "${value.length}/$maxLength",
+            fontSize = 10.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.End
+        )
+        Spacer(modifier = Modifier.height(4.dp))
         Box(
             modifier = Modifier
                 .fillMaxWidth()

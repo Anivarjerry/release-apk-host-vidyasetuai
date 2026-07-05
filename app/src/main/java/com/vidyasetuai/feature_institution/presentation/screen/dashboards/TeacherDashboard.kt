@@ -2,6 +2,8 @@ package com.vidyasetuai.feature_institution.presentation.screen.dashboards
 
 import android.os.Build
 import androidx.annotation.RequiresApi
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,6 +35,7 @@ fun TeacherDashboard(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -60,7 +63,7 @@ fun TeacherDashboard(
         Spacer(modifier = Modifier.height(24.dp))
         
         Box(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.padding(vertical = 16.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(text = if (isHindi) "शिक्षक डैशबोर्ड" else "Teacher Dashboard")

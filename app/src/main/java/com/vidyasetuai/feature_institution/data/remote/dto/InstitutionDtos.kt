@@ -859,3 +859,14 @@ data class GlobalStaffRoleDto(
     val is_active: Boolean = true,
     val is_deleted: Boolean = false
 )
+
+@Serializable
+data class BusLiveLocationDto(
+    val bus_id: String,
+    val parent_organization_id: String,
+    val active_session_id: String? = null,
+    val latitude: Double,
+    val longitude: Double,
+    val speed: Double,
+    val updated_at: String
+)

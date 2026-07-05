@@ -53,7 +53,7 @@ fun StartTripFabSubScreen(
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        text = if (isHindi) "ट्रिप शुरू करें" else "Start Trip",
+                        text = if (isHindi) "ट्रिप उपस्थिति शुरू करें" else "Start Trip Attendance",
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         color = textColor
@@ -89,7 +89,7 @@ fun StartTripFabSubScreen(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = if (isHindi) "ट्रिप शुरू करें" else "Start Trip",
+                    text = if (isHindi) "ट्रिप उपस्थिति शुरू करें" else "Start Trip Attendance",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = textColor

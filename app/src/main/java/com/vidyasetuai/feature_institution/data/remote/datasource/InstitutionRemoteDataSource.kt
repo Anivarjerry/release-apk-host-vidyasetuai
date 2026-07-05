@@ -815,4 +815,17 @@ class InstitutionRemoteDataSource {
                 }
             }.decodeList()
     }
+
+    suspend fun upsertBusLiveLocation(dto: BusLiveLocationDto) {
+        SupabaseClient.client.from("organization_parent_bus_live_locations").upsert(dto)
+    }
+
+    suspend fun fetchBusLiveLocation(busId: String): BusLiveLocationDto? {
+        return SupabaseClient.client.from("organization_parent_bus_live_locations")
+            .select(columns = Columns.raw("*")) {
+                filter {
+                    eq("bus_id", busId)
+                }
+            }.decodeSingleOrNull<BusLiveLocationDto>()
+    }
 }

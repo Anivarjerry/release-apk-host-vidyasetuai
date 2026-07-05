@@ -618,6 +618,15 @@ class InstitutionViewModel(
 
     private fun switchWorkspace(workspaceId: String) {
         val current = _uiState.value.workspaces.find { it.id == workspaceId } ?: return
+        
+        // Auto end active trip on workspace switch
+        if (_uiState.value.isTripActive) {
+            val intent = android.content.Intent(appContext, LocationTrackingService::class.java).apply {
+                action = LocationTrackingService.ACTION_STOP_TRIP
+            }
+            appContext.startService(intent)
+        }
+
         // Restore saved activeSubScreen for the new workspace
         val restoredSubScreen = restoreActiveSubScreen(workspaceId)
         _uiState.value = _uiState.value.copy(

@@ -30,6 +30,12 @@ interface InstitutionDao {
     
     @Query("DELETE FROM workspaces")
     suspend fun clearWorkspaces()
+    
+    @Transaction
+    suspend fun replaceWorkspaces(workspaces: List<WorkspaceEntity>) {
+        clearWorkspaces()
+        insertWorkspaces(workspaces)
+    }
 
     // ── Child Org Setup ──────────────────────────────────────────────────────
     @Insert(onConflict = OnConflictStrategy.REPLACE)

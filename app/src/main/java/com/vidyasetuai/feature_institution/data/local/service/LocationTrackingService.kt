@@ -138,7 +138,7 @@ class LocationTrackingService : Service() {
                     break
                 }
 
-                delay(20000L)
+                delay(10000L)
                 currentBestLocation?.let {
                     uploadLocation(it)
                 }

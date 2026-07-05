@@ -157,9 +157,13 @@ fun InstitutionEvent(
         }
     }
 
+    var lastConnectionState by remember { mutableStateOf<ConnectionState?>(null) }
     LaunchedEffect(userId, connectionState, navTarget) {
-        if (userId.isNotEmpty() && connectionState is ConnectionState.CONNECTED) {
+        if (userId.isNotEmpty() && connectionState is ConnectionState.CONNECTED && lastConnectionState != connectionState) {
             viewModel.onEvent(InstitutionEvent.LoadWorkspaces(userId, navTarget))
+            lastConnectionState = connectionState
+        } else if (connectionState != ConnectionState.CONNECTED) {
+            lastConnectionState = connectionState
         }
     }
 

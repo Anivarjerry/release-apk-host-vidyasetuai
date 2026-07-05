@@ -98,8 +98,8 @@ object DashboardFabRules {
                     "DRIVER" -> commonItems + listOf(
                         SpeedDialItem(
                             id = "start_trip",
-                            labelEn = "Start Trip",
-                            labelHi = "ट्रिप शुरू करें",
+                            labelEn = "Start Trip Attendance",
+                            labelHi = "ट्रिप उपस्थिति शुरू करें",
                             icon = Lucide.Play,
                             route = "fab_start_trip"
                         )

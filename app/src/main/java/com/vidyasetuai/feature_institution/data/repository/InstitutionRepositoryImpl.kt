@@ -376,8 +376,7 @@ class InstitutionRepositoryImpl(
                     }
                 }
                 
-                dao.clearWorkspaces()
-                dao.insertWorkspaces(finalWorkspaces)
+                dao.replaceWorkspaces(finalWorkspaces)
             }
         } catch (e: Exception) {
             android.util.Log.e("OfflineSync", "Failed to refresh workspaces from remote, using local cache", e)
@@ -686,6 +685,17 @@ class InstitutionRepositoryImpl(
             )
             dao.insertParentBuses(listOf(updated))
         }
+        val sessionToUse = sessionId?.takeIf { it.isNotEmpty() } ?: "fa000000-0000-0000-0000-000000000001"
+        val dto = com.vidyasetuai.feature_institution.data.remote.dto.BusLiveLocationDto(
+            bus_id = busId,
+            parent_organization_id = parentOrgId,
+            active_session_id = sessionToUse,
+            latitude = latitude,
+            longitude = longitude,
+            speed = speed,
+            updated_at = java.time.Instant.now().toString()
+        )
+        remoteDataSource.upsertBusLiveLocation(dto)
     }
     
     override suspend fun getStudentAttendance(studentIds: List<String>, forceRefresh: Boolean): Result<List<StudentAttendance>> = runCatching {
@@ -742,15 +752,69 @@ class InstitutionRepositoryImpl(
     }
     
     override suspend fun getBusLiveLocation(busId: String): Result<BusLiveLocation?> = runCatching {
-        val bus = dao.getBusById(busId) ?: return@runCatching null
-        BusLiveLocation(
-            busId = bus.id,
-            latitude = bus.lastLatitude ?: 0.0,
-            longitude = bus.lastLongitude ?: 0.0,
-            speed = 0.0,
-            updatedAt = bus.lastLocationUpdatedAt?.toString() ?: "",
-            isLive = bus.lastLocationUpdatedAt != null
-        )
+        val remoteLoc = try {
+            remoteDataSource.fetchBusLiveLocation(busId)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e // Cooperative cancellation should not be caught
+        } catch (e: Exception) {
+            android.util.Log.e("OfflineSync", "Failed to fetch remote bus location, falling back to local DB cache", e)
+            null
+        }
+
+        if (remoteLoc != null) {
+            // Robust parsing of Postgres timestamp: format '2026-06-29 04:41:07.796612'
+            val cleanStr = remoteLoc.updated_at.replace(" ", "T")
+            val updatedTime = try {
+                java.time.Instant.parse(cleanStr)
+            } catch (e: Exception) {
+                try {
+                    java.time.OffsetDateTime.parse(cleanStr).toInstant()
+                } catch (e2: Exception) {
+                    try {
+                        java.time.LocalDateTime.parse(cleanStr.substringBefore("+").substringBefore("Z"))
+                            .toInstant(java.time.ZoneOffset.UTC)
+                    } catch (e3: Exception) {
+                        java.time.Instant.now() // Fallback to current time if parsing fails
+                    }
+                }
+            }
+
+            val bus = dao.getBusById(busId)
+            if (bus != null) {
+                val updated = bus.copy(
+                    lastLatitude = remoteLoc.latitude,
+                    lastLongitude = remoteLoc.longitude,
+                    lastLocationUpdatedAt = updatedTime.toEpochMilli() // Save the actual coordinate update time!
+                )
+                dao.insertParentBuses(listOf(updated))
+            }
+            
+            val diffSeconds = java.time.Duration.between(updatedTime, java.time.Instant.now()).seconds
+            val isLiveLocation = java.lang.Math.abs(diffSeconds) < 120
+
+            BusLiveLocation(
+                busId = remoteLoc.bus_id,
+                latitude = remoteLoc.latitude,
+                longitude = remoteLoc.longitude,
+                speed = remoteLoc.speed,
+                updatedAt = remoteLoc.updated_at,
+                isLive = isLiveLocation
+            )
+        } else {
+            val bus = dao.getBusById(busId) ?: return@runCatching null
+            val isLocalLive = bus.lastLocationUpdatedAt?.let { ts ->
+                java.lang.Math.abs(System.currentTimeMillis() - ts) < 120 * 1000
+            } ?: false
+
+            BusLiveLocation(
+                busId = bus.id,
+                latitude = bus.lastLatitude ?: 0.0,
+                longitude = bus.lastLongitude ?: 0.0,
+                speed = 0.0,
+                updatedAt = bus.lastLocationUpdatedAt?.toString() ?: "",
+                isLive = isLocalLive
+            )
+        }
     }
     
     override suspend fun getBusRoute(busId: String, forceRefresh: Boolean): Result<List<BusRouteStop>> = runCatching {

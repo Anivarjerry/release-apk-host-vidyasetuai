@@ -532,13 +532,28 @@ BEGIN
             FROM public.organization_parent_buses b
             WHERE b.parent_organization_id = v_resolved_parent_org_id
             AND (
-                p_user_role NOT IN ('Student', 'Guardian', 'DRIVER')
+                -- Admin/Transport power roles → parent org ki sabhi buses
+                p_user_role IN (
+                    'Principal', 'System Administrator', 'School Administrator',
+                    'Admin', 'Org Admin', 'Director', 'Owner',
+                    'Transport Manager', 'Transport Coordinator',
+                    'Accountant', 'Gatekeeper'
+                )
+                -- Driver → kewal vahi bus jisme vo driver hai
                 OR (p_user_role = 'DRIVER' AND b.id = v_bus_id)
-                OR (p_user_role IN ('Student', 'Guardian') AND b.id IN (
+                -- Student → kewal apni assigned bus
+                OR (p_user_role = 'Student' AND b.id IN (
                     SELECT bus_id FROM public.organization_student_bus_assignments WHERE student_id = v_student_id
                 ))
+                -- Guardian → kewal unke bachon ki assigned buses
+                OR (p_user_role = 'Guardian' AND b.id IN (
+                    SELECT sba.bus_id 
+                    FROM public.organization_student_bus_assignments sba
+                    JOIN public.organization_students s ON sba.student_id = s.id
+                    WHERE s.guardian_id = v_guardian_id
+                ))
             )
-            AND (p_last_synced_at IS NULL OR b.updated_at > p_last_synced_at)
+            -- Buses ka data hamesha poora bhejo, koi last_synced_at filter nahi
         ),
 
         -- ----------------------------------------------------
@@ -806,6 +821,121 @@ BEGIN
                 SELECT orgs.id FROM public.organizations orgs WHERE orgs.parent_organization_id = v_resolved_parent_org_id
             )
             AND (p_last_synced_at IS NULL OR s.updated_at > p_last_synced_at)
+        ),
+
+        -- ----------------------------------------------------
+        -- ENTITY 15: Remarks (टिप्पणियाँ और उनके लक्षित यूज़र्स)
+        -- ----------------------------------------------------
+        'remarks', (
+            SELECT COALESCE(jsonb_agg(
+                jsonb_build_object(
+                    'id', r.id,
+                    'parent_organization_id', r.parent_organization_id,
+                    'organization_id', r.organization_id,
+                    'active_session_id', r.active_session_id,
+                    'content', r.content,
+                    'category', r.category,
+                    'priority', r.priority,
+                    'creator_user_id', COALESCE(
+                        r.creator_workspace_role_id,
+                        (SELECT st.id FROM public.organization_parent_staff st JOIN public.organization_parent_staff_user_links l ON l.staff_id = st.id WHERE l.user_id = r.creator_user_id AND l.parent_organization_id = r.parent_organization_id LIMIT 1),
+                        (SELECT s.id FROM public.organization_students s JOIN public.organization_student_user_links l ON l.student_id = s.id WHERE l.user_id = r.creator_user_id LIMIT 1),
+                        (SELECT g.id FROM public.organization_guardians g JOIN public.organization_guardian_user_links l ON l.guardian_id = g.id WHERE l.user_id = r.creator_user_id LIMIT 1),
+                        r.creator_user_id
+                    ),
+                    'creator_workspace_role_id', COALESCE(
+                        (SELECT sr.name FROM public.organization_parent_staff st JOIN public.global_staff_roles sr ON st.role_id = sr.id WHERE st.id = r.creator_workspace_role_id LIMIT 1),
+                        (SELECT 'Student' FROM public.organization_students s WHERE s.id = r.creator_workspace_role_id LIMIT 1),
+                        (SELECT 'Guardian' FROM public.organization_guardians g WHERE g.id = r.creator_workspace_role_id LIMIT 1),
+                        (CASE 
+                            WHEN EXISTS (SELECT 1 FROM public.organization_student_user_links l WHERE l.user_id = r.creator_user_id) THEN 'Student'
+                            WHEN EXISTS (SELECT 1 FROM public.organization_guardian_user_links l WHERE l.user_id = r.creator_user_id) THEN 'Guardian'
+                            ELSE 'Staff'
+                         END)
+                    ),
+                    'visibility_type', r.visibility_type,
+                    'visibility_audience', (
+                        CASE 
+                            WHEN jsonb_typeof(r.visibility_audience) = 'string' THEN (r.visibility_audience#>>'{}')::jsonb 
+                            ELSE r.visibility_audience 
+                        END
+                    ),
+                    'is_pinned', r.is_pinned,
+                    'pin_expires_at', r.pin_expires_at,
+                    'expires_at', r.expires_at,
+                    'target_id', COALESCE(t.id::text, ''),
+                    'target_type', COALESCE(t.target_type, ''),
+                    'target_student_id', t.target_student_id,
+                    'target_guardian_id', t.target_guardian_id,
+                    'target_staff_id', t.target_staff_id,
+                    'target_user_id', t.target_user_id,
+                    'is_active', r.is_active,
+                    'is_deleted', r.is_deleted,
+                    'created_by', COALESCE(
+                        (SELECT st.name FROM public.organization_parent_staff st WHERE st.id = r.creator_workspace_role_id LIMIT 1),
+                        (SELECT s.name FROM public.organization_students s WHERE s.id = r.creator_workspace_role_id LIMIT 1),
+                        (SELECT g.name FROM public.organization_guardians g WHERE g.id = r.creator_workspace_role_id LIMIT 1),
+                        (SELECT st.name FROM public.organization_parent_staff st JOIN public.organization_parent_staff_user_links l ON l.staff_id = st.id WHERE l.user_id = r.creator_user_id AND l.parent_organization_id = r.parent_organization_id LIMIT 1),
+                        (SELECT s.name FROM public.organization_students s JOIN public.organization_student_user_links l ON l.student_id = s.id WHERE l.user_id = r.creator_user_id LIMIT 1),
+                        (SELECT g.name FROM public.organization_guardians g JOIN public.organization_guardian_user_links l ON l.guardian_id = g.id WHERE l.user_id = r.creator_user_id LIMIT 1),
+                        'Unknown'
+                    ),
+                    'updated_by', r.updated_by::text
+                )
+            ), '[]'::jsonb)
+            FROM public.organization_remarks r
+            LEFT JOIN public.organization_remark_targets t ON r.id = t.remark_id
+            WHERE r.parent_organization_id = v_resolved_parent_org_id
+            AND (p_last_synced_at IS NULL OR r.updated_at > p_last_synced_at OR t.updated_at > p_last_synced_at)
+            -- सुरक्षा और विजिबिलिटी फ़िल्टर नियम
+            AND (
+                -- नियम १: एडमिन/प्रिंसिपल सभी रिमार्क्स देख सकते हैं
+                p_user_role IN ('System Administrator', 'School Administrator', 'Org Admin', 'Principal')
+                OR
+                -- नियम २: रिमार्क बनाने वाला स्वयं उसे देख सकता है
+                r.creator_user_id = p_user_id
+                OR
+                -- नियम ३: छात्र के लिए फ़िल्टर
+                (
+                    p_user_role = 'Student'
+                    AND (t.target_student_id = v_student_id OR t.target_user_id = p_user_id)
+                    AND (
+                        COALESCE((CASE WHEN jsonb_typeof(r.visibility_audience) = 'string' THEN (r.visibility_audience#>>'{}')::jsonb ELSE r.visibility_audience END), '[]'::jsonb) = '[]'::jsonb
+                        OR
+                        COALESCE((CASE WHEN jsonb_typeof(r.visibility_audience) = 'string' THEN (r.visibility_audience#>>'{}')::jsonb ELSE r.visibility_audience END), '[]'::jsonb) @> '["Student"]'::jsonb
+                    )
+                )
+                OR
+                -- नियम ४: अभिभावक के लिए फ़िल्टर
+                (
+                    p_user_role = 'Guardian'
+                    AND (
+                        t.target_guardian_id = v_guardian_id 
+                        OR 
+                        t.target_student_id IN (SELECT id FROM public.organization_students WHERE guardian_id = v_guardian_id)
+                    )
+                    AND (
+                        COALESCE((CASE WHEN jsonb_typeof(r.visibility_audience) = 'string' THEN (r.visibility_audience#>>'{}')::jsonb ELSE r.visibility_audience END), '[]'::jsonb) = '[]'::jsonb
+                        OR
+                        COALESCE((CASE WHEN jsonb_typeof(r.visibility_audience) = 'string' THEN (r.visibility_audience#>>'{}')::jsonb ELSE r.visibility_audience END), '[]'::jsonb) @> '["Guardian"]'::jsonb
+                    )
+                )
+                OR
+                -- नियम ५: शिक्षक / सामान्य स्टाफ के लिए फ़िल्टर
+                (
+                    p_user_role NOT IN ('Student', 'Guardian', 'System Administrator', 'School Administrator', 'Org Admin', 'Principal')
+                    AND (t.target_staff_id = v_staff_id OR t.target_user_id = p_user_id)
+                    AND (
+                        COALESCE((CASE WHEN jsonb_typeof(r.visibility_audience) = 'string' THEN (r.visibility_audience#>>'{}')::jsonb ELSE r.visibility_audience END), '[]'::jsonb) = '[]'::jsonb
+                        OR
+                        COALESCE((CASE WHEN jsonb_typeof(r.visibility_audience) = 'string' THEN (r.visibility_audience#>>'{}')::jsonb ELSE r.visibility_audience END), '[]'::jsonb) @> jsonb_build_array(p_user_role)
+                        OR
+                        COALESCE((CASE WHEN jsonb_typeof(r.visibility_audience) = 'string' THEN (r.visibility_audience#>>'{}')::jsonb ELSE r.visibility_audience END), '[]'::jsonb) @> '["Staff"]'::jsonb
+                        OR
+                        COALESCE((CASE WHEN jsonb_typeof(r.visibility_audience) = 'string' THEN (r.visibility_audience#>>'{}')::jsonb ELSE r.visibility_audience END), '[]'::jsonb) @> '["Teacher"]'::jsonb
+                    )
+                )
+            )
         )
     ) INTO v_response;
 

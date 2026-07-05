@@ -51,6 +51,17 @@ import com.vidyasetuai.feature_institution.presentation.screen.subscreens.Driver
 import com.vidyasetuai.feature_institution.presentation.screen.subscreens.DriverStudentAttendanceScreenHistory
 import com.vidyasetuai.feature_institution.presentation.screen.subscreens.RemarkShowScreen
 import com.vidyasetuai.feature_institution.presentation.screen.subscreens.RemarkAddScreen
+import com.vidyasetuai.feature_institution.presentation.screen.subscreens.ApplyLeaveFabSubScreen
+import com.vidyasetuai.feature_institution.presentation.screen.subscreens.AddRemarksFabSubScreen
+import com.vidyasetuai.feature_institution.presentation.screen.subscreens.PendingSyncsSubScreen
+import com.vidyasetuai.feature_institution.presentation.screen.subscreens.TakeAttendanceFabSubScreen
+import com.vidyasetuai.feature_institution.presentation.screen.subscreens.CollectFeeFabSubScreen
+import com.vidyasetuai.feature_institution.presentation.screen.subscreens.AddFinanceFabSubScreen
+import com.vidyasetuai.feature_institution.presentation.screen.subscreens.StartTripFabSubScreen
+import com.vidyasetuai.feature_institution.presentation.screen.subscreens.AddCaseStudyFabSubScreen
+import com.vidyasetuai.feature_institution.presentation.screen.subscreens.AddExperienceFabSubScreen
+import com.vidyasetuai.feature_institution.presentation.screen.subscreens.AddJourneyFabSubScreen
+import com.vidyasetuai.feature_institution.presentation.screen.subscreens.QuicksFabSubScreen
 import com.vidyasetuai.feature_institution.presentation.screen.dashboards.*
 import com.vidyasetuai.feature_institution.presentation.component.DashboardFloatingActionButton
 import com.vidyasetuai.feature_institution.util.DashboardFabRules
@@ -597,7 +608,7 @@ fun WorkspaceContainer(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.Start,
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     state.activeWorkspace?.let { active ->
@@ -667,6 +678,31 @@ fun WorkspaceContainer(
                                         lineHeight = 10.sp
                                     )
                                 }
+                            }
+                        }
+                    }
+
+                    // Sync Center Cloud Icon (on the right)
+                    IconButton(
+                        onClick = {
+                            viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("pending_syncs"))
+                        },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.TopEnd) {
+                            Icon(
+                                imageVector = Lucide.Cloud,
+                                contentDescription = "Sync Center",
+                                tint = if (state.totalUnsyncedCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                modifier = Modifier.size(24.dp)
+                            )
+                            if (state.totalUnsyncedCount > 0) {
+                                Box(
+                                    modifier = Modifier
+                                        .offset(x = 2.dp, y = (-2).dp)
+                                        .background(Color.Red, CircleShape)
+                                        .size(8.dp)
+                                )
                             }
                         }
                     }
@@ -864,6 +900,78 @@ fun WorkspaceContainer(
                             isHindi = isHindi,
                             isDark = isDark,
                             onPaymentClick = { selectedPaymentReceipt = it },
+                            onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
+                        )
+                        "pending_syncs" -> PendingSyncsSubScreen(
+                            state = state,
+                            isHindi = isHindi,
+                            isDark = isDark,
+                            viewModel = viewModel,
+                            userId = userId,
+                            onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
+                        )
+                        "fab_leave" -> ApplyLeaveFabSubScreen(
+                            state = state,
+                            isHindi = isHindi,
+                            isDark = isDark,
+                            viewModel = viewModel,
+                            userId = userId,
+                            onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
+                        )
+                        "fab_remarks_add" -> AddRemarksFabSubScreen(
+                            state = state,
+                            isHindi = isHindi,
+                            isDark = isDark,
+                            viewModel = viewModel,
+                            userId = userId,
+                            onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
+                        )
+                        "fab_take_attendance" -> TakeAttendanceFabSubScreen(
+                            state = state,
+                            isHindi = isHindi,
+                            isDark = isDark,
+                            onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
+                        )
+                        "fab_fees" -> CollectFeeFabSubScreen(
+                            state = state,
+                            isHindi = isHindi,
+                            isDark = isDark,
+                            onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
+                        )
+                        "fab_add_finance" -> AddFinanceFabSubScreen(
+                            state = state,
+                            isHindi = isHindi,
+                            isDark = isDark,
+                            onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
+                        )
+                        "fab_start_trip" -> StartTripFabSubScreen(
+                            state = state,
+                            isHindi = isHindi,
+                            isDark = isDark,
+                            onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
+                        )
+                        "fab_add_case_study" -> AddCaseStudyFabSubScreen(
+                            state = state,
+                            isHindi = isHindi,
+                            isDark = isDark,
+                            onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
+                        )
+                        "fab_add_experience" -> AddExperienceFabSubScreen(
+                            state = state,
+                            isHindi = isHindi,
+                            isDark = isDark,
+                            onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
+                        )
+                        "fab_add_journey" -> AddJourneyFabSubScreen(
+                            state = state,
+                            isHindi = isHindi,
+                            isDark = isDark,
+                            onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
+                        )
+                        "fab_quicks" -> QuicksFabSubScreen(
+                            state = state,
+                            isHindi = isHindi,
+                            isDark = isDark,
                             onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
                         )
                         "content_feed" -> ContentFeedScreen(

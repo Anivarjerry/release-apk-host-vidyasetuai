@@ -29,14 +29,21 @@ object DashboardFabRules {
                     labelEn = "Add Case Study",
                     labelHi = "केस स्टडी जोड़ें",
                     icon = Lucide.FileText,
-                    route = "add_case_study"
+                    route = "fab_add_case_study"
                 ),
                 SpeedDialItem(
                     id = "add_experience",
                     labelEn = "Add Experience",
                     labelHi = "अनुभव साझा करें",
                     icon = Lucide.MessageCircle,
-                    route = "add_experience"
+                    route = "fab_add_experience"
+                ),
+                SpeedDialItem(
+                    id = "quicks",
+                    labelEn = "Quicks",
+                    labelHi = "क्विक एक्शन",
+                    icon = Lucide.Zap,
+                    route = "fab_quicks"
                 )
             )
             "journey" -> listOf(
@@ -45,7 +52,7 @@ object DashboardFabRules {
                     labelEn = "Add Journey",
                     labelHi = "जर्नी शुरू करें",
                     icon = Lucide.Plus,
-                    route = "add_journey"
+                    route = "fab_add_journey"
                 )
             )
             "institute" -> {
@@ -58,14 +65,14 @@ object DashboardFabRules {
                         labelEn = "Apply Leave",
                         labelHi = "छुट्टी के लिए आवेदन",
                         icon = Lucide.Calendar,
-                        route = "leave"
+                        route = "fab_leave"
                     ),
                     SpeedDialItem(
                         id = "add_remarks",
                         labelEn = "Add Remarks",
                         labelHi = "टिप्पणी जोड़ें",
                         icon = Lucide.MessageCircle,
-                        route = "remarks_add"
+                        route = "fab_remarks_add"
                     )
                 )
 
@@ -88,13 +95,22 @@ object DashboardFabRules {
                             route = "set_home_location"
                         )
                     )
+                    "DRIVER" -> commonItems + listOf(
+                        SpeedDialItem(
+                            id = "start_trip",
+                            labelEn = "Start Trip",
+                            labelHi = "ट्रिप शुरू करें",
+                            icon = Lucide.Play,
+                            route = "fab_start_trip"
+                        )
+                    )
                     "TEACHER", "ASSISTANT TEACHER", "LECTURER", "COACH", "INSTRUCTOR" -> commonItems + listOf(
                         SpeedDialItem(
                             id = "add_attendance",
                             labelEn = "Take Attendance",
                             labelHi = "उपस्थिति दर्ज करें",
                             icon = Lucide.Check,
-                            route = "take_attendance"
+                            route = "fab_take_attendance"
                         )
                     )
                     "ACCOUNTANT", "FINANCE", "CASHIER", "TREASURER" -> commonItems + listOf(
@@ -103,15 +119,15 @@ object DashboardFabRules {
                             labelEn = "Add Finance",
                             labelHi = "वित्त जोड़ें",
                             icon = Lucide.Coins,
-                            route = "finance_toast",
-                            requiresToastOnly = true
+                            route = "fab_add_finance",
+                            requiresToastOnly = false
                         ),
                         SpeedDialItem(
                             id = "add_fee",
                             labelEn = "Collect Fee",
                             labelHi = "फीस जमा करें",
                             icon = Lucide.Coins,
-                            route = "fees"
+                            route = "fab_fees"
                         )
                     )
                     "ADMIN", "SYSTEM ADMINISTRATOR", "SCHOOL ADMINISTRATOR", "ORG ADMIN", "PRINCIPAL", "DIRECTOR", "OWNER" -> commonItems + listOf(
@@ -120,21 +136,14 @@ object DashboardFabRules {
                             labelEn = "Take Attendance",
                             labelHi = "उपस्थिति दर्ज करें",
                             icon = Lucide.Check,
-                            route = "take_attendance"
+                            route = "fab_take_attendance"
                         ),
                         SpeedDialItem(
                             id = "add_fee",
                             labelEn = "Collect Fee",
                             labelHi = "फीस जमा करें",
                             icon = Lucide.Coins,
-                            route = "fees"
-                        ),
-                        SpeedDialItem(
-                            id = "set_location",
-                            labelEn = "Set Home Location",
-                            labelHi = "घर का स्थान सेट करें",
-                            icon = Lucide.MapPin,
-                            route = "student_directory"
+                            route = "fab_fees"
                         )
                     )
                     else -> commonItems

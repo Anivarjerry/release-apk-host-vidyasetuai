@@ -364,7 +364,9 @@ data class OrganizationLeaveDto(
     val action_by: String?,
     val action_at: String?,
     val is_active: Boolean,
-    val is_deleted: Boolean
+    val is_deleted: Boolean,
+    val created_by: String? = null,
+    val updated_by: String? = null
 )
 
 @Serializable
@@ -377,8 +379,11 @@ data class OrganizationRemarkDto(
     val category: String,
     val priority: String,
     val creator_user_id: String,
+    @kotlinx.serialization.SerialName("creator_workspace_role_id")
+    val creator_workspace_role_id: String?,
     val visibility_type: String,
-    val visibility_audience_json: String,
+    @kotlinx.serialization.SerialName("visibility_audience")
+    val visibility_audience: List<String>,
     val is_pinned: Boolean,
     val pin_expires_at: String?,
     val expires_at: String?,
@@ -388,9 +393,74 @@ data class OrganizationRemarkDto(
     val target_guardian_id: String?,
     val target_staff_id: String?,
     val target_user_id: String?,
-    val attachments_json: String,
     val is_active: Boolean,
-    val is_deleted: Boolean
+    val is_deleted: Boolean,
+    val created_by: String? = null,
+    val updated_by: String? = null
+)
+
+@Serializable
+data class OrganizationRemarkInsertDto(
+    val id: String,
+    val parent_organization_id: String,
+    val organization_id: String?,
+    val active_session_id: String,
+    val content: String,
+    val category: String,
+    val priority: String,
+    val creator_user_id: String,
+    @kotlinx.serialization.SerialName("creator_workspace_role_id")
+    val creator_workspace_role_id: String?,
+    val visibility_type: String,
+    @kotlinx.serialization.SerialName("visibility_audience")
+    val visibility_audience: List<String>,
+    val is_pinned: Boolean,
+    val pin_expires_at: String?,
+    val expires_at: String?,
+    val is_active: Boolean,
+    val is_deleted: Boolean,
+    val created_by: String? = null,
+    val updated_by: String? = null
+)
+
+@Serializable
+data class OrganizationRemarkTargetInsertDto(
+    val id: String,
+    val parent_organization_id: String,
+    val organization_id: String?,
+    val active_session_id: String,
+    val remark_id: String,
+    val target_type: String,
+    val target_student_id: String?,
+    val target_guardian_id: String?,
+    val target_staff_id: String?,
+    val target_user_id: String?,
+    val is_active: Boolean,
+    val is_deleted: Boolean,
+    val created_by: String? = null,
+    val updated_by: String? = null
+)
+
+@Serializable
+data class OrgProfileSessionDto(
+    val active_session_id: String?
+)
+
+@Serializable
+data class OrgParentProfileSessionDto(
+    val active_session_id: String?
+)
+
+@Serializable
+data class OrgProfileSessionMapDto(
+    val organization_id: String,
+    val active_session_id: String?
+)
+
+@Serializable
+data class OrgParentProfileSessionMapDto(
+    val parent_organization_id: String,
+    val active_session_id: String?
 )
 
 @Serializable
@@ -776,5 +846,16 @@ data class WorkspaceSyncPayloadDto(
     val bus_trips: List<ParentBusTripDto> = emptyList(),
     val bus_trip_attendance_logs: List<ParentBusTripAttendanceLogDto> = emptyList(),
     val calendar_events: List<CalendarEventDto> = emptyList(),
-    val exam_subject_settings: List<ExamSubjectSettingDto> = emptyList()
+    val exam_subject_settings: List<ExamSubjectSettingDto> = emptyList(),
+    val remarks: List<OrganizationRemarkDto> = emptyList()
+)
+
+@Serializable
+data class GlobalStaffRoleDto(
+    val id: String,
+    val name: String,
+    val code: String,
+    val description: String? = null,
+    val is_active: Boolean = true,
+    val is_deleted: Boolean = false
 )

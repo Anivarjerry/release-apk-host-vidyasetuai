@@ -354,7 +354,8 @@ interface InstitutionDao {
         trips: List<LocalParentBusTripEntity>,
         tripLogs: List<LocalParentBusTripAttendanceLogEntity>,
         calendarEvents: List<LocalCalendarEventEntity>,
-        examSettings: List<LocalExamSubjectSettingEntity>
+        examSettings: List<LocalExamSubjectSettingEntity>,
+        remarks: List<LocalOrganizationRemarkEntity>
     ) {
         clearChildOrgSetups()
         clearStudents()
@@ -370,6 +371,7 @@ interface InstitutionDao {
         clearBusTripAttendanceLogs()
         clearCalendarEvents()
         clearExamSubjectSettings()
+        clearRemarks()
 
         if (setups.isNotEmpty()) {
             setups.forEach { insertChildOrgSetup(it) }
@@ -387,6 +389,7 @@ interface InstitutionDao {
         if (tripLogs.isNotEmpty()) insertParentBusTripAttendanceLogs(tripLogs)
         if (calendarEvents.isNotEmpty()) insertCalendarEvents(calendarEvents)
         if (examSettings.isNotEmpty()) insertExamSubjectSettings(examSettings)
+        if (remarks.isNotEmpty()) insertRemarks(remarks)
     }
 
 
@@ -394,6 +397,28 @@ interface InstitutionDao {
     @Transaction
     suspend fun clearAllInstitutionData() {
         clearWorkspaces()
+        clearChildOrgSetups()
+        clearParentBuses()
+        clearStudents()
+        clearStudentAdditionalFees()
+        clearStudentFeePayments()
+        clearParentExpenses()
+        clearStudentAttendance()
+        clearBusTripAttendanceLogs()
+        clearParentBusTrips()
+        clearLeaves()
+        clearRemarks()
+        clearCalendarEvents()
+        clearStaffAttendance()
+        clearStaff()
+        clearStudentUserLinks()
+        clearExams()
+        clearExamSubjectSettings()
+        clearStudentExamMarks()
+    }
+
+    @Transaction
+    suspend fun clearWorkspaceSpecificData() {
         clearChildOrgSetups()
         clearParentBuses()
         clearStudents()

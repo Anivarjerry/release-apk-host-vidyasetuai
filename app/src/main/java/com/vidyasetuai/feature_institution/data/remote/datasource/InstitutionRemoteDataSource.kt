@@ -750,7 +750,44 @@ class InstitutionRemoteDataSource {
     }
 
     suspend fun upsertRemarks(remarks: List<OrganizationRemarkDto>) {
-        SupabaseClient.client.from("organization_remarks").upsert(remarks)
+        val remarksToInsert = remarks.map {
+            OrganizationRemarkInsertDto(
+                id = it.id,
+                parent_organization_id = it.parent_organization_id,
+                organization_id = it.organization_id?.takeIf { it.isNotBlank() },
+                active_session_id = it.active_session_id,
+                content = it.content,
+                category = it.category,
+                priority = it.priority,
+                creator_user_id = it.creator_user_id,
+                creator_workspace_role_id = it.creator_workspace_role_id,
+                visibility_type = it.visibility_type,
+                visibility_audience = it.visibility_audience,
+                is_pinned = it.is_pinned,
+                pin_expires_at = it.pin_expires_at?.takeIf { it.isNotBlank() },
+                expires_at = it.expires_at?.takeIf { it.isNotBlank() },
+                is_active = it.is_active,
+                is_deleted = it.is_deleted
+            )
+        }
+        val targetsToInsert = remarks.map {
+            OrganizationRemarkTargetInsertDto(
+                id = it.target_id.ifEmpty { java.util.UUID.randomUUID().toString() },
+                parent_organization_id = it.parent_organization_id,
+                organization_id = it.organization_id?.takeIf { it.isNotBlank() },
+                active_session_id = it.active_session_id,
+                remark_id = it.id,
+                target_type = it.target_type,
+                target_student_id = it.target_student_id?.takeIf { it.isNotBlank() },
+                target_guardian_id = it.target_guardian_id?.takeIf { it.isNotBlank() },
+                target_staff_id = it.target_staff_id?.takeIf { it.isNotBlank() },
+                target_user_id = it.target_user_id?.takeIf { it.isNotBlank() },
+                is_active = it.is_active,
+                is_deleted = it.is_deleted
+            )
+        }
+        SupabaseClient.client.from("organization_remarks").upsert(remarksToInsert)
+        SupabaseClient.client.from("organization_remark_targets").upsert(targetsToInsert)
     }
 
     suspend fun upsertStudentAttendance(attendance: List<StudentAttendanceDto>) {
@@ -767,5 +804,15 @@ class InstitutionRemoteDataSource {
 
     suspend fun upsertBusTrip(trip: ParentBusTripDto) {
         SupabaseClient.client.from("organization_parent_bus_trips").upsert(trip)
+    }
+
+    suspend fun fetchGlobalStaffRoles(): List<GlobalStaffRoleDto> {
+        return SupabaseClient.client.from("global_staff_roles")
+            .select(columns = Columns.raw("*")) {
+                filter {
+                    eq("is_active", true)
+                    eq("is_deleted", false)
+                }
+            }.decodeList()
     }
 }

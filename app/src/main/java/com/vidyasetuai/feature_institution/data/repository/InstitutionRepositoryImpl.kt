@@ -7,7 +7,10 @@ import com.vidyasetuai.feature_institution.domain.model.*
 import com.vidyasetuai.feature_institution.data.local.entity.*
 import com.vidyasetuai.feature_institution.data.remote.dto.*
 import kotlinx.serialization.json.*
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
 import com.vidyasetuai.core.network.SupabaseClient
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Columns
 
@@ -21,6 +24,24 @@ class InstitutionRepositoryImpl(
     override suspend fun approveConnection(userId: String): Result<Unit> = Result.success(Unit)
     
     override suspend fun getWorkspaces(userId: String): Result<List<Workspace>> = runCatching {
+        var activeSessionId = ""
+        var activeSessionName = ""
+        try {
+            val activeSession = SupabaseClient.client.from("global_sessions")
+                .select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("id, name")) {
+                    filter {
+                        eq("is_active", true)
+                        eq("is_deleted", false)
+                    }
+                }.decodeSingleOrNull<GlobalSessionMapDto>()
+            if (activeSession != null) {
+                activeSessionId = activeSession.id
+                activeSessionName = activeSession.name
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("OfflineSync", "Error fetching active session in getWorkspaces", e)
+        }
+
         try {
             val studentLinks = try { remoteDataSource.fetchStudentWorkspaces(userId) } catch (e: Exception) { 
                 android.util.Log.e("OfflineSync", "Error fetching student workspaces", e)
@@ -138,6 +159,50 @@ class InstitutionRepositoryImpl(
                 }
             }
 
+            // 5b. Fetch Active Sessions dynamically from organization_profiles and organization_parents_profiles
+            val orgSessionsMap = mutableMapOf<String, String>()
+            if (childOrgIds.isNotEmpty()) {
+                try {
+                    SupabaseClient.client.from("organization_profiles")
+                        .select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("organization_id, active_session_id")) {
+                            filter { isIn("organization_id", childOrgIds) }
+                        }.decodeList<OrgProfileSessionMapDto>().forEach { profile ->
+                            profile.active_session_id?.let { orgSessionsMap[profile.organization_id] = it }
+                        }
+                } catch (e: Exception) {
+                    android.util.Log.e("OfflineSync", "Error bulk fetching child org active sessions", e)
+                }
+            }
+
+            val parentOrgSessionsMap = mutableMapOf<String, String>()
+            if (parentOrgIds.isNotEmpty()) {
+                try {
+                    SupabaseClient.client.from("organization_parents_profiles")
+                        .select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("parent_organization_id, active_session_id")) {
+                            filter { isIn("parent_organization_id", parentOrgIds) }
+                        }.decodeList<OrgParentProfileSessionMapDto>().forEach { profile ->
+                            profile.active_session_id?.let { parentOrgSessionsMap[profile.parent_organization_id] = it }
+                        }
+                } catch (e: Exception) {
+                    android.util.Log.e("OfflineSync", "Error bulk fetching parent org active sessions", e)
+                }
+            }
+
+            val allSessionIds = (orgSessionsMap.values + parentOrgSessionsMap.values).distinct().filter { it.isNotEmpty() }
+            val sessionNamesMap = mutableMapOf<String, String>()
+            if (allSessionIds.isNotEmpty()) {
+                try {
+                    SupabaseClient.client.from("global_sessions")
+                        .select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("id, name")) {
+                            filter { isIn("id", allSessionIds) }
+                        }.decodeList<GlobalSessionMapDto>().forEach { sess ->
+                            sessionNamesMap[sess.id] = sess.name
+                        }
+                } catch (e: Exception) {
+                    android.util.Log.e("OfflineSync", "Error bulk fetching active session names", e)
+                }
+            }
+
             // 6. Map everything back to WorkspaceEntity
             val list = mutableListOf<WorkspaceEntity>()
 
@@ -159,8 +224,8 @@ class InstitutionRepositoryImpl(
                         parentOrgLogoLocalPath = null,
                         parentOrgEmail = null,
                         parentOrgMobile = null,
-                        parentOrgActiveSessionId = "",
-                        parentOrgActiveSessionName = null,
+                        parentOrgActiveSessionId = orgSessionsMap[orgId] ?: "",
+                        parentOrgActiveSessionName = sessionNamesMap[orgSessionsMap[orgId] ?: ""] ?: "",
                         parentOrgWebsiteUrl = null,
                         childOrganizationId = orgId,
                         childOrganizationName = childOrgName,
@@ -211,8 +276,8 @@ class InstitutionRepositoryImpl(
                         parentOrgLogoLocalPath = null,
                         parentOrgEmail = null,
                         parentOrgMobile = null,
-                        parentOrgActiveSessionId = "",
-                        parentOrgActiveSessionName = null,
+                        parentOrgActiveSessionId = parentOrgSessionsMap[parentOrgId] ?: "",
+                        parentOrgActiveSessionName = sessionNamesMap[parentOrgSessionsMap[parentOrgId] ?: ""] ?: "",
                         parentOrgWebsiteUrl = null,
                         childOrganizationId = link.child_organization_id,
                         childOrganizationName = null,
@@ -262,8 +327,8 @@ class InstitutionRepositoryImpl(
                         parentOrgLogoLocalPath = null,
                         parentOrgEmail = null,
                         parentOrgMobile = null,
-                        parentOrgActiveSessionId = "",
-                        parentOrgActiveSessionName = null,
+                        parentOrgActiveSessionId = orgSessionsMap[orgId] ?: "",
+                        parentOrgActiveSessionName = sessionNamesMap[orgSessionsMap[orgId] ?: ""] ?: "",
                         parentOrgWebsiteUrl = null,
                         childOrganizationId = orgId,
                         childOrganizationName = childOrgName,
@@ -461,6 +526,99 @@ class InstitutionRepositoryImpl(
         }
         val local = dao.getLeavesForUser(userId, userId, userId)
         local.map { it.toDomain() }
+    }
+    
+    override suspend fun syncLeavesOffline(): Result<Unit> = runCatching {
+        android.util.Log.d("OfflineSync", "syncLeavesOffline: Started checking unsynced leaves")
+        val unsynced = dao.getUnsyncedLeaves()
+        android.util.Log.d("OfflineSync", "syncLeavesOffline: Found ${unsynced.size} unsynced leaves")
+        if (unsynced.isNotEmpty()) {
+            val activeWorkspace = dao.getActiveWorkspace()
+            var realSessionId = activeWorkspace?.parentOrgActiveSessionId ?: ""
+            if (realSessionId.isEmpty() || realSessionId == "session_mock_id_1") {
+                getActiveSessionDetails().onSuccess { pair ->
+                    realSessionId = pair.first
+                }
+            }
+            if (realSessionId.isEmpty() || realSessionId == "session_mock_id_1") {
+                try {
+                    val activeSession = SupabaseClient.client.from("global_sessions")
+                        .select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("id, name")) {
+                            filter {
+                                eq("is_active", true)
+                                eq("is_deleted", false)
+                            }
+                        }.decodeSingleOrNull<GlobalSessionMapDto>()
+                    if (activeSession != null) {
+                        realSessionId = activeSession.id
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("OfflineSync", "Error fetching active session in syncLeavesOffline", e)
+                }
+            }
+            if (realSessionId.isEmpty() || realSessionId == "session_mock_id_1") {
+                throw IllegalStateException("Real active session ID could not be resolved from server or database.")
+            }
+
+            val currentAuthUserId = SupabaseClient.client.auth.currentSessionOrNull()?.user?.id
+            var realUserId: String? = null
+            if (!currentAuthUserId.isNullOrEmpty()) {
+                try {
+                    val userMapping = SupabaseClient.client.from("users")
+                        .select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("id")) {
+                            filter {
+                                eq("auth_id", currentAuthUserId)
+                            }
+                        }.decodeSingleOrNull<SyncUserDto>()
+                    if (userMapping != null) {
+                        realUserId = userMapping.id
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("OfflineSync", "Error fetching user mapping in syncLeavesOffline", e)
+                }
+            }
+            val finalUserId = realUserId ?: currentAuthUserId
+
+            val dtos = unsynced.map { leave ->
+                val sendSessionId = if (leave.activeSessionId == "session_mock_id_1" || leave.activeSessionId.isEmpty()) {
+                    realSessionId
+                } else {
+                    leave.activeSessionId
+                }
+
+                OrganizationLeaveDto(
+                    id = leave.id,
+                    parent_organization_id = leave.parentOrganizationId,
+                    organization_id = leave.organizationId?.takeIf { it.isNotBlank() },
+                    active_session_id = sendSessionId,
+                    applicant_type = leave.applicantType,
+                    staff_id = leave.staffId?.takeIf { it.isNotBlank() },
+                    student_id = leave.studentId?.takeIf { it.isNotBlank() },
+                    leave_type = leave.leaveType,
+                    start_date = leave.startDate,
+                    end_date = leave.endDate,
+                    is_half_day = leave.isHalfDay,
+                    half_day_period = leave.halfDayPeriod?.takeIf { it.isNotBlank() },
+                    reason = leave.reason,
+                    status = leave.status,
+                    action_remarks = leave.actionRemarks?.takeIf { it.isNotBlank() },
+                    action_by = leave.actionBy?.takeIf { it.isNotBlank() },
+                    action_at = leave.actionAt?.takeIf { it.isNotBlank() },
+                    is_active = leave.isActive,
+                    is_deleted = leave.isDeleted,
+                    created_by = finalUserId,
+                    updated_by = finalUserId
+                )
+            }
+            android.util.Log.d("OfflineSync", "syncLeavesOffline: Upserting ${dtos.size} DTOs to server...")
+            remoteDataSource.upsertLeaves(dtos)
+            android.util.Log.d("OfflineSync", "syncLeavesOffline: Upsert complete. Marking local records as SYNCED")
+            unsynced.forEach { dao.markLeaveSynced(it.id) }
+        }
+    }.onSuccess {
+        android.util.Log.d("OfflineSync", "syncLeavesOffline: SUCCESS")
+    }.onFailure { e ->
+        android.util.Log.e("OfflineSync", "syncLeavesOffline: FAILED", e)
     }
     
     override suspend fun getFeePayments(studentIds: List<String>, forceRefresh: Boolean): Result<List<FeePayment>> = runCatching {
@@ -825,7 +983,80 @@ class InstitutionRepositoryImpl(
     
     override suspend fun getActiveSessionDetails(forceRefresh: Boolean): Result<Pair<String, String>> = runCatching {
         val active = dao.getActiveWorkspace()
-        Pair(active?.parentOrgActiveSessionId ?: "", active?.parentOrgActiveSessionName ?: "")
+        var sessionId = active?.parentOrgActiveSessionId ?: ""
+        var sessionName = active?.parentOrgActiveSessionName ?: ""
+        
+        if (sessionId.isEmpty() && active != null) {
+            val childOrgId = active.childOrganizationId
+            if (!childOrgId.isNullOrEmpty()) {
+                val setup = dao.getChildOrgSetup(childOrgId)
+                if (setup != null) {
+                    sessionId = setup.sessionId
+                    sessionName = setup.sessionName
+                }
+            }
+        }
+        
+        if (sessionId.isEmpty() && active != null) {
+            try {
+                if (active.workspaceRole == "Student" || active.workspaceRole == "Guardian") {
+                    val childOrgId = active.childOrganizationId
+                    if (!childOrgId.isNullOrEmpty()) {
+                        val profile = SupabaseClient.client.from("organization_profiles")
+                            .select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("active_session_id")) {
+                                filter {
+                                    eq("organization_id", childOrgId)
+                                }
+                            }.decodeSingleOrNull<OrgProfileSessionDto>()
+                        sessionId = profile?.active_session_id ?: ""
+                    }
+                } else {
+                    val parentOrgId = active.parentOrganizationId
+                    if (parentOrgId.isNotEmpty()) {
+                        val profile = SupabaseClient.client.from("organization_parents_profiles")
+                            .select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("active_session_id")) {
+                                filter {
+                                    eq("parent_organization_id", parentOrgId)
+                                }
+                            }.decodeSingleOrNull<OrgParentProfileSessionDto>()
+                        sessionId = profile?.active_session_id ?: ""
+                    }
+                }
+
+                if (sessionId.isNotEmpty()) {
+                    val globalSession = SupabaseClient.client.from("global_sessions")
+                        .select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("id, name")) {
+                            filter {
+                                eq("id", sessionId)
+                            }
+                        }.decodeSingleOrNull<GlobalSessionMapDto>()
+                    if (globalSession != null) {
+                        sessionName = globalSession.name
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("OfflineSync", "Error fetching active session from profile tables in getActiveSessionDetails", e)
+            }
+        }
+
+        if (sessionId.isEmpty()) {
+            try {
+                val activeSession = SupabaseClient.client.from("global_sessions")
+                    .select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("id, name")) {
+                        filter {
+                            eq("is_active", true)
+                            eq("is_deleted", false)
+                        }
+                    }.decodeSingleOrNull<GlobalSessionMapDto>()
+                if (activeSession != null) {
+                    sessionId = activeSession.id
+                    sessionName = activeSession.name
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("OfflineSync", "Error fetching active session in getActiveSessionDetails fallback", e)
+            }
+        }
+        Pair(sessionId, sessionName)
     }
     
     override suspend fun checkIfAttendanceMarked(orgId: String, classId: String, sectionId: String, date: String): Result<Boolean> = runCatching {
@@ -1282,6 +1513,43 @@ class InstitutionRepositoryImpl(
             )
         }
 
+        // 15. Map Remarks
+        val localRemarks = payload.remarks.map { remark ->
+            LocalOrganizationRemarkEntity(
+                targetId = remark.target_id,
+                id = remark.id,
+                parentOrganizationId = remark.parent_organization_id,
+                organizationId = remark.organization_id,
+                activeSessionId = remark.active_session_id,
+                content = remark.content,
+                category = remark.category,
+                priority = remark.priority,
+                creatorUserId = remark.creator_user_id,
+                creatorUserName = remark.created_by,
+                creatorRoleName = remark.creator_workspace_role_id,
+                visibilityType = remark.visibility_type,
+                visibilityAudienceJson = kotlinx.serialization.json.Json.encodeToString(remark.visibility_audience),
+                isPinned = remark.is_pinned,
+                pinExpiresAt = remark.pin_expires_at,
+                expiresAt = remark.expires_at,
+                targetType = remark.target_type,
+                targetStudentId = remark.target_student_id,
+                targetStudentName = null,
+                targetClassName = null,
+                targetSectionName = null,
+                targetGuardianId = remark.target_guardian_id,
+                targetGuardianName = null,
+                targetStaffId = remark.target_staff_id,
+                targetStaffName = null,
+                targetUserId = remark.target_user_id,
+                attachmentsJson = "[]",
+                isActive = remark.is_active,
+                isDeleted = remark.is_deleted,
+                lastSyncedAt = System.currentTimeMillis(),
+                syncState = "SYNCED"
+            )
+        }
+
         android.util.Log.d("OfflineSync", "Overwriting local database atomically with replaceWorkspaceDataPayload transaction...")
         dao.replaceWorkspaceDataPayload(
             setups = localSetups,
@@ -1297,11 +1565,17 @@ class InstitutionRepositoryImpl(
             trips = localTrips,
             tripLogs = localTripLogs,
             calendarEvents = localCalendarEvents,
-            examSettings = localExamSettings
+            examSettings = localExamSettings,
+            remarks = localRemarks
         )
 
         
         android.util.Log.d("OfflineSync", "Consolidated Sync Workspace Completed Successfully!")
+    }
+    
+    override suspend fun clearWorkspaceSpecificData(): Result<Unit> = runCatching {
+        android.util.Log.d("OfflineSync", "Clearing workspace specific data from local database...")
+        dao.clearWorkspaceSpecificData()
     }
     
     override suspend fun searchStudentsOffline(query: String, classFilterName: String?, sectionFilterName: String?): Result<List<StudentSearchResult>> = runCatching {
@@ -1544,7 +1818,9 @@ class InstitutionRepositoryImpl(
     }
     
     override suspend fun syncOfflineAttendanceLogs(): Result<Int> = runCatching {
+        android.util.Log.d("OfflineSync", "syncOfflineAttendanceLogs: Started checking unsynced attendance logs")
         val unsynced = dao.getUnsyncedBusTripAttendanceLogs()
+        android.util.Log.d("OfflineSync", "syncOfflineAttendanceLogs: Found ${unsynced.size} unsynced logs")
         if (unsynced.isNotEmpty()) {
             val dtos = unsynced.map { log ->
                 ParentBusTripAttendanceLogDto(
@@ -1563,10 +1839,16 @@ class InstitutionRepositoryImpl(
                     is_deleted = log.isDeleted
                 )
             }
+            android.util.Log.d("OfflineSync", "syncOfflineAttendanceLogs: Upserting ${dtos.size} DTOs to server...")
             remoteDataSource.upsertBusAttendanceLogs(dtos)
+            android.util.Log.d("OfflineSync", "syncOfflineAttendanceLogs: Upsert complete. Marking local records as SYNCED")
             unsynced.forEach { dao.markBusTripAttendanceLogSynced(it.id) }
         }
         unsynced.size
+    }.onSuccess { count ->
+        android.util.Log.d("OfflineSync", "syncOfflineAttendanceLogs: SUCCESS, synced count = $count")
+    }.onFailure { e ->
+        android.util.Log.e("OfflineSync", "syncOfflineAttendanceLogs: FAILED", e)
     }
     
     override suspend fun getRemarks(sessionId: String): Result<List<Remark>> = runCatching {
@@ -1594,7 +1876,7 @@ class InstitutionRepositoryImpl(
                 creatorUserName = remark.createdBy,
                 creatorRoleName = remark.creatorWorkspaceRoleId,
                 visibilityType = remark.visibilityType,
-                visibilityAudienceJson = "[]",
+                visibilityAudienceJson = kotlinx.serialization.json.Json.encodeToString(remark.visibilityAudience),
                 isPinned = remark.isPinned,
                 pinExpiresAt = remark.pinExpiresAt,
                 expiresAt = remark.expiresAt,
@@ -1628,8 +1910,9 @@ class InstitutionRepositoryImpl(
                 category = item.category,
                 priority = item.priority,
                 creator_user_id = item.creatorUserId,
+                creator_workspace_role_id = item.creatorRoleName,
                 visibility_type = item.visibilityType,
-                visibility_audience_json = item.visibilityAudienceJson ?: "[]",
+                visibility_audience = try { kotlinx.serialization.json.Json.decodeFromString<List<String>>(item.visibilityAudienceJson ?: "[]") } catch (e: Exception) { emptyList() },
                 is_pinned = item.isPinned,
                 pin_expires_at = item.pinExpiresAt,
                 expires_at = item.expiresAt,
@@ -1639,9 +1922,10 @@ class InstitutionRepositoryImpl(
                 target_guardian_id = item.targetGuardianId,
                 target_staff_id = item.targetStaffId,
                 target_user_id = item.targetUserId,
-                attachments_json = item.attachmentsJson ?: "[]",
                 is_active = item.isActive,
-                is_deleted = item.isDeleted
+                is_deleted = item.isDeleted,
+                created_by = item.creatorUserId,
+                updated_by = item.creatorUserId
             )
         }
         runCatching {
@@ -1654,25 +1938,80 @@ class InstitutionRepositoryImpl(
         dao.softDeleteRemark(remarkId)
     }
     
-    override suspend fun getGlobalStaffRoles(): Result<List<GlobalStaffRole>> = Result.success(emptyList())
-    
-    override suspend fun loadGlobalStaffRolesFromServer(): Result<Unit> = Result.success(Unit)
+    private var cachedGlobalStaffRoles: List<GlobalStaffRole>? = null
+
+    override suspend fun getGlobalStaffRoles(): Result<List<GlobalStaffRole>> = runCatching {
+        cachedGlobalStaffRoles?.let { return Result.success(it) }
+        val roles = remoteDataSource.fetchGlobalStaffRoles().map { dto ->
+            GlobalStaffRole(
+                id = dto.id,
+                name = dto.name,
+                code = dto.code,
+                description = dto.description,
+                isActive = dto.is_active,
+                isDeleted = dto.is_deleted
+            )
+        }
+        cachedGlobalStaffRoles = roles
+        roles
+    }
+
+    override suspend fun loadGlobalStaffRolesFromServer(): Result<Unit> = runCatching {
+        getGlobalStaffRoles()
+        Unit
+    }
     
     override suspend fun syncRemarksOffline(): Result<Unit> = runCatching {
+        android.util.Log.d("OfflineSync", "syncRemarksOffline: Started checking unsynced remarks")
         val unsynced = dao.getUnsyncedRemarks()
+        android.util.Log.d("OfflineSync", "syncRemarksOffline: Found ${unsynced.size} unsynced remarks")
         if (unsynced.isNotEmpty()) {
+            val activeWorkspace = dao.getActiveWorkspace()
+            var realSessionId = activeWorkspace?.parentOrgActiveSessionId ?: ""
+            if (realSessionId.isEmpty() || realSessionId == "session_mock_id_1") {
+                getActiveSessionDetails().onSuccess { pair ->
+                    realSessionId = pair.first
+                }
+            }
+            if (realSessionId.isEmpty() || realSessionId == "session_mock_id_1") {
+                try {
+                    val activeSession = SupabaseClient.client.from("global_sessions")
+                        .select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("id, name")) {
+                            filter {
+                                eq("is_active", true)
+                                eq("is_deleted", false)
+                            }
+                        }.decodeSingleOrNull<GlobalSessionMapDto>()
+                    if (activeSession != null) {
+                        realSessionId = activeSession.id
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("OfflineSync", "Error fetching active session in syncRemarksOffline", e)
+                }
+            }
+            if (realSessionId.isEmpty() || realSessionId == "session_mock_id_1") {
+                throw IllegalStateException("Real active session ID could not be resolved from server or database.")
+            }
+
             val dtos = unsynced.map { remark ->
+                val sendSessionId = if (remark.activeSessionId == "session_mock_id_1" || remark.activeSessionId.isEmpty()) {
+                    realSessionId
+                } else {
+                    remark.activeSessionId
+                }
+
                 OrganizationRemarkDto(
                     id = remark.id,
                     parent_organization_id = remark.parentOrganizationId,
                     organization_id = remark.organizationId,
-                    active_session_id = remark.activeSessionId,
+                    active_session_id = sendSessionId,
                     content = remark.content,
                     category = remark.category,
                     priority = remark.priority,
                     creator_user_id = remark.creatorUserId,
+                    creator_workspace_role_id = remark.creatorRoleName,
                     visibility_type = remark.visibilityType,
-                    visibility_audience_json = remark.visibilityAudienceJson ?: "[]",
+                    visibility_audience = try { kotlinx.serialization.json.Json.decodeFromString<List<String>>(remark.visibilityAudienceJson ?: "[]") } catch (e: Exception) { emptyList() },
                     is_pinned = remark.isPinned,
                     pin_expires_at = remark.pinExpiresAt,
                     expires_at = remark.expiresAt,
@@ -1682,14 +2021,21 @@ class InstitutionRepositoryImpl(
                     target_guardian_id = remark.targetGuardianId,
                     target_staff_id = remark.targetStaffId,
                     target_user_id = remark.targetUserId,
-                    attachments_json = remark.attachmentsJson ?: "[]",
                     is_active = remark.isActive,
-                    is_deleted = remark.isDeleted
+                    is_deleted = remark.isDeleted,
+                    created_by = remark.creatorUserId,
+                    updated_by = remark.creatorUserId
                 )
             }
+            android.util.Log.d("OfflineSync", "syncRemarksOffline: Upserting ${dtos.size} DTOs to server...")
             remoteDataSource.upsertRemarks(dtos)
+            android.util.Log.d("OfflineSync", "syncRemarksOffline: Upsert complete. Marking local records as SYNCED")
             unsynced.forEach { dao.markRemarkSynced(it.id) }
         }
+    }.onSuccess {
+        android.util.Log.d("OfflineSync", "syncRemarksOffline: SUCCESS")
+    }.onFailure { e ->
+        android.util.Log.e("OfflineSync", "syncRemarksOffline: FAILED", e)
     }
     
     override suspend fun fetchRemarksFromServer(sessionId: String, parentOrgId: String): Result<Unit> = runCatching {
@@ -1706,10 +2052,10 @@ class InstitutionRepositoryImpl(
                     category = remark.category,
                     priority = remark.priority,
                     creatorUserId = remark.creator_user_id,
-                    creatorUserName = null,
-                    creatorRoleName = null,
+                    creatorUserName = remark.created_by,
+                    creatorRoleName = remark.creator_workspace_role_id,
                     visibilityType = remark.visibility_type,
-                    visibilityAudienceJson = remark.visibility_audience_json,
+                    visibilityAudienceJson = kotlinx.serialization.json.Json.encodeToString(remark.visibility_audience),
                     isPinned = remark.is_pinned,
                     pinExpiresAt = remark.pin_expires_at,
                     expiresAt = remark.expires_at,
@@ -1723,7 +2069,7 @@ class InstitutionRepositoryImpl(
                     targetStaffId = remark.target_staff_id,
                     targetStaffName = null,
                     targetUserId = remark.target_user_id,
-                    attachmentsJson = remark.attachments_json,
+                    attachmentsJson = "[]",
                     isActive = remark.is_active,
                     isDeleted = remark.is_deleted,
                     lastSyncedAt = System.currentTimeMillis(),
@@ -2128,7 +2474,8 @@ class InstitutionRepositoryImpl(
         roleImageUrl = roleImageUrl,
         roleImageLocalPath = roleImageLocalPath,
         studentId = studentId,
-        guardianId = guardianId
+        guardianId = guardianId,
+        staffId = staffId
     )
     
     private fun LocalStudentEntity.toInstitutionStudent(totalFee: Double, paidFee: Double) = InstitutionStudent(
@@ -2260,7 +2607,7 @@ class InstitutionRepositoryImpl(
         creatorUserId = creatorUserId,
         creatorWorkspaceRoleId = creatorRoleName,
         visibilityType = visibilityType,
-        visibilityAudience = emptyList(),
+        visibilityAudience = try { kotlinx.serialization.json.Json.decodeFromString<List<String>>(visibilityAudienceJson) } catch (e: Exception) { emptyList() },
         isPinned = isPinned,
         pinExpiresAt = pinExpiresAt,
         expiresAt = expiresAt,
@@ -2541,3 +2888,6 @@ private data class SectionWithIdDto(val id: String, val name: String)
 
 @kotlinx.serialization.Serializable
 private data class GlobalLookupDto(val id: String, val name: String)
+
+@kotlinx.serialization.Serializable
+private data class SyncUserDto(val id: String)

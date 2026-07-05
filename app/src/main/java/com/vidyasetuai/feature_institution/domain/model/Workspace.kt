@@ -13,5 +13,6 @@ data class Workspace(
     val roleImageUrl: String? = null,
     val roleImageLocalPath: String? = null,
     val studentId: String? = null,
-    val guardianId: String? = null
+    val guardianId: String? = null,
+    val staffId: String? = null
 )

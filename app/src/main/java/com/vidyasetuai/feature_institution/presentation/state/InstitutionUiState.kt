@@ -98,5 +98,11 @@ data class InstitutionUiState(
     val selectedStudentDetail: com.vidyasetuai.feature_institution.data.local.entity.LocalStudentEntity? = null,
     val selectedStudentBusAssignment: StudentBusAssignment? = null,
     val selectedStudentHomeLocation: StudentHomeLocation? = null,
-    val isSavingHomeLocation: Boolean = false
+    val isSavingHomeLocation: Boolean = false,
+    
+    // Sync Center Unsynced Counts
+    val unsyncedLeavesCount: Int = 0,
+    val unsyncedRemarksCount: Int = 0,
+    val unsyncedAttendanceCount: Int = 0,
+    val totalUnsyncedCount: Int = 0
 )

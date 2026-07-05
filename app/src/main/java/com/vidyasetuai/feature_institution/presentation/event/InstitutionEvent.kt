@@ -83,4 +83,7 @@ sealed class InstitutionEvent {
         val longitude: Double,
         val userId: String
     ) : InstitutionEvent()
+    
+    // Sync Center Event
+    data class SyncAllPending(val userId: String) : InstitutionEvent()
 }

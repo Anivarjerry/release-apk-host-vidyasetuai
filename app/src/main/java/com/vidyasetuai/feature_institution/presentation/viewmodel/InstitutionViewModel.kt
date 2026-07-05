@@ -65,6 +65,7 @@ class InstitutionViewModel(
     }
 
     init {
+        refreshUnsyncedCounts()
         viewModelScope.launch {
             LocationTrackingService.isTracking.collect { tracking ->
                 _uiState.value = _uiState.value.copy(isTripActive = tracking)
@@ -275,6 +276,9 @@ class InstitutionViewModel(
                     event.userId
                 )
             }
+            is InstitutionEvent.SyncAllPending -> {
+                syncAllPending(event.userId)
+            }
         }
     }
 
@@ -449,7 +453,12 @@ class InstitutionViewModel(
                 }
                 loadSalaryDetails(userId, workspace.parentOrgId)
 
-                val isAdminRole = workspace.role in listOf("Admin", "System Administrator", "School Administrator", "Org Admin", "Principal", "Director", "Owner")
+                val isAdminRole = workspace.role in listOf(
+                    "Admin", "System Administrator", "School Administrator", "Org Admin",
+                    "Principal", "Director", "Owner",
+                    "Transport Manager", "Transport Coordinator",
+                    "Accountant", "Gatekeeper"
+                )
                 if (isAdminRole) {
                     loadAttendanceDropdowns(workspace.parentOrgId, silent = silent)
                     loadAdminFinanceStats(workspace.parentOrgId)
@@ -624,6 +633,7 @@ class InstitutionViewModel(
             offlineStudents = emptyList()
         )
         viewModelScope.launch {
+            repository.clearWorkspaceSpecificData()
             repository.setActiveWorkspace(workspaceId)
             // Simulate skeleton loader transition
             delay(400)
@@ -644,6 +654,10 @@ class InstitutionViewModel(
             ).fold(
                 onSuccess = {
                     loadLeaves(event.createdBy, _uiState.value.activeWorkspace?.role ?: "")
+                    viewModelScope.launch {
+                        repository.syncLeavesOffline()
+                        refreshUnsyncedCounts()
+                    }
                 },
                 onFailure = { e ->
                     _uiState.value = _uiState.value.copy(errorMessage = e.message)
@@ -686,7 +700,9 @@ class InstitutionViewModel(
 
     private fun loadAllBuses(parentOrgId: String) {
         viewModelScope.launch {
-            repository.getParentBuses(parentOrgId, forceRefresh = true).onSuccess { list ->
+            // forceRefresh = false: Room DB se padho jisme payload se sahi driver_id/name save hai
+            // forceRefresh = true REST API call karta hai jisme staff JOIN nahi → driver_id NULL ho jata tha
+            repository.getParentBuses(parentOrgId, forceRefresh = false).onSuccess { list ->
                 _uiState.value = _uiState.value.copy(allBuses = list)
                 list.map { it.id }.distinct().filter { it.isNotEmpty() }.forEach { busId ->
                     loadBusRoute(busId)
@@ -1003,6 +1019,11 @@ class InstitutionViewModel(
                     if (workspace.role != "Guardian" && workspace.role != "Student") {
                         loadOfflineStudents()
                     }
+                    viewModelScope.launch {
+                        repository.fetchRemarksFromServer(sessionId, workspace.parentOrgId).onSuccess {
+                            loadRemarks(sessionId, workspace.parentOrgId)
+                        }
+                    }
                 },
                 onFailure = { e ->
                     Log.e("OfflineSync", "Background sync failed", e)
@@ -1269,14 +1290,18 @@ class InstitutionViewModel(
     private fun submitRemark(event: InstitutionEvent.SubmitRemark) {
         viewModelScope.launch {
             val workspace = _uiState.value.activeWorkspace ?: return@launch
-            val sessionId = _uiState.value.activeSessionId.ifEmpty { "session_mock_id_1" }
+            val sessionId = _uiState.value.activeSessionId
             val nowStr = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", java.util.Locale.US).format(java.util.Date())
             val remarkId = java.util.UUID.randomUUID().toString()
 
-            // workspace.role mein role ka naam hota hai (e.g. "System Administrator")
-            // Supabase ko UUID chahiye, isliye globalStaffRoles se match karke UUID nikalte hain
-            val roleUuid = _uiState.value.globalStaffRoles
-                .firstOrNull { it.name.equals(workspace.role, ignoreCase = true) }?.id
+            android.util.Log.d("VidyaSetu_Dashboard", "submitRemark activeWorkspace ID: ${workspace.id}, Role: ${workspace.role}, ParentOrgId: ${workspace.parentOrgId}, ChildOrgId: ${workspace.childOrgId}, staffId: ${workspace.staffId}, studentId: ${workspace.studentId}, roleDisplayName: ${workspace.roleDisplayName}")
+
+            val roleUuid = when {
+                workspace.role.equals("Student", ignoreCase = true) -> workspace.studentId
+                workspace.role.equals("Guardian", ignoreCase = true) -> workspace.guardianId
+                else -> workspace.staffId
+            }
+
 
             var resolvedOrgId = workspace.childOrgId
             if (event.targetType == "Student" && event.targetStudentId != null) {
@@ -1285,8 +1310,6 @@ class InstitutionViewModel(
                 if (student != null) {
                     resolvedOrgId = student.organizationId.takeIf { it.isNotEmpty() }
                 }
-            } else if (event.targetType == "Self" || event.targetType == "Staff") {
-                resolvedOrgId = null
             }
 
             val remark = Remark(
@@ -1315,6 +1338,10 @@ class InstitutionViewModel(
 
             val targets = mutableListOf<RemarkTarget>()
             if (event.targetType == "Self") {
+                val targetStudentId = if (workspace.role.equals("Student", ignoreCase = true)) workspace.studentId else null
+                val targetGuardianId = if (workspace.role.equals("Guardian", ignoreCase = true)) workspace.guardianId else null
+                val targetStaffId = if (!workspace.role.equals("Student", ignoreCase = true) && !workspace.role.equals("Guardian", ignoreCase = true)) workspace.staffId else null
+
                 targets.add(
                     RemarkTarget(
                         id = java.util.UUID.randomUUID().toString(),
@@ -1323,9 +1350,9 @@ class InstitutionViewModel(
                         activeSessionId = sessionId,
                         remarkId = remarkId,
                         targetType = "Self",
-                        targetStudentId = null,
-                        targetGuardianId = null,
-                        targetStaffId = null,
+                        targetStudentId = targetStudentId,
+                        targetGuardianId = targetGuardianId,
+                        targetStaffId = targetStaffId,
                         targetUserId = currentUserId.ifEmpty { workspace.id },
                         isActive = true,
                         isDeleted = false,
@@ -1363,6 +1390,10 @@ class InstitutionViewModel(
             repository.addRemark(remark, targets).fold(
                 onSuccess = {
                     loadRemarks(sessionId, workspace.parentOrgId)
+                    viewModelScope.launch {
+                        repository.syncRemarksOffline()
+                        refreshUnsyncedCounts()
+                    }
                 },
                 onFailure = { e ->
                     _uiState.value = _uiState.value.copy(errorMessage = e.message)
@@ -1463,6 +1494,58 @@ class InstitutionViewModel(
                     )
                 }
             )
+        }
+    }
+
+    fun refreshUnsyncedCounts() {
+        viewModelScope.launch {
+            val db = com.vidyasetuai.core.database.AppDatabase.getDatabase(appContext)
+            val dao = db.institutionDao()
+            val leavesCount = try { dao.getUnsyncedLeaves().size } catch (e: Exception) { 0 }
+            val remarksCount = try { dao.getUnsyncedRemarks().size } catch (e: Exception) { 0 }
+            val attendanceCount = try { dao.getUnsyncedBusTripAttendanceLogs().size } catch (e: Exception) { 0 }
+            val total = leavesCount + remarksCount + attendanceCount
+            
+            _uiState.value = _uiState.value.copy(
+                unsyncedLeavesCount = leavesCount,
+                unsyncedRemarksCount = remarksCount,
+                unsyncedAttendanceCount = attendanceCount,
+                totalUnsyncedCount = total
+            )
+        }
+    }
+
+    private fun syncAllPending(userId: String) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isSyncingLogs = true)
+            val workspace = _uiState.value.activeWorkspace
+            val sessionId = _uiState.value.activeSessionId
+            
+            // Sync leaves
+            repository.syncLeavesOffline().onFailure { e ->
+                android.util.Log.e("SyncCenter", "syncAllPending: Leaves sync failed", e)
+            }
+            
+            // Sync remarks
+            repository.syncRemarksOffline().onFailure { e ->
+                android.util.Log.e("SyncCenter", "syncAllPending: Remarks sync failed", e)
+            }
+            
+            // Sync attendance
+            repository.syncOfflineAttendanceLogs().onFailure { e ->
+                android.util.Log.e("SyncCenter", "syncAllPending: Attendance sync failed", e)
+            }
+            
+            // Reload from server
+            if (workspace != null) {
+                repository.fetchRemarksFromServer(sessionId, workspace.parentOrgId)
+                loadWorkspaceData(userId, workspace, silent = true)
+            }
+            
+            // Refresh counts
+            refreshUnsyncedCounts()
+            
+            _uiState.value = _uiState.value.copy(isSyncingLogs = false)
         }
     }
 }

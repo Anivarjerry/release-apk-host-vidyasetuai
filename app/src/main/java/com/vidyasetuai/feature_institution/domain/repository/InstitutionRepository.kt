@@ -34,6 +34,7 @@ interface InstitutionRepository {
     suspend fun getLeaveQuotas(staffId: String): Result<Double>
     suspend fun getStaffLeaveQuotaAndRemaining(userId: String, parentOrgId: String, forceRefresh: Boolean = false): Result<Pair<Double, Double>>
     suspend fun getLeaves(userId: String, role: String, forceRefresh: Boolean = false): Result<List<Leave>>
+    suspend fun syncLeavesOffline(): Result<Unit>
     
     // Fee Payments & Receipts
     suspend fun getFeePayments(studentIds: List<String>, forceRefresh: Boolean = false): Result<List<FeePayment>>
@@ -70,6 +71,7 @@ interface InstitutionRepository {
 
     // --- Offline Sync & Search Support ---
     suspend fun syncWorkspaceData(userId: String, workspace: Workspace, sessionId: String): Result<Unit>
+    suspend fun clearWorkspaceSpecificData(): Result<Unit>
     suspend fun searchStudentsOffline(query: String, classFilterName: String?, sectionFilterName: String?): Result<List<StudentSearchResult>>
     suspend fun getLocalStudentById(studentId: String): Result<com.vidyasetuai.feature_institution.data.local.entity.LocalStudentEntity?>
     suspend fun getOfflineStaff(parentOrgId: String): Result<List<com.vidyasetuai.feature_institution.data.local.entity.LocalParentStaffEntity>>

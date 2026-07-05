@@ -341,7 +341,7 @@ interface InstitutionDao {
     // ── Database Replace Helper Transaction ───────────────────────────────────
     @Transaction
     suspend fun replaceWorkspaceDataPayload(
-        setup: LocalChildOrgSetupEntity?,
+        setups: List<LocalChildOrgSetupEntity>,
         students: List<LocalStudentEntity>,
         fees: List<LocalStudentAdditionalFeeEntity>,
         payments: List<LocalStudentFeePaymentEntity>,
@@ -371,7 +371,9 @@ interface InstitutionDao {
         clearCalendarEvents()
         clearExamSubjectSettings()
 
-        if (setup != null) insertChildOrgSetup(setup)
+        if (setups.isNotEmpty()) {
+            setups.forEach { insertChildOrgSetup(it) }
+        }
         if (students.isNotEmpty()) insertStudents(students)
         if (fees.isNotEmpty()) insertStudentAdditionalFees(fees)
         if (payments.isNotEmpty()) insertStudentFeePayments(payments)
@@ -386,6 +388,7 @@ interface InstitutionDao {
         if (calendarEvents.isNotEmpty()) insertCalendarEvents(calendarEvents)
         if (examSettings.isNotEmpty()) insertExamSubjectSettings(examSettings)
     }
+
 
     // ── Database Clear Helper Transaction ─────────────────────────────────────
     @Transaction

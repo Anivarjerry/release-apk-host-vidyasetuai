@@ -741,6 +741,15 @@ data class StudentSyncDto(
 @Serializable
 data class SimpleChildOrgSetupDto(
     val organization_id: String,
+    val organization_name: String? = null,
+    val email: String? = null,
+    val mobile_number: String? = null,
+    val alternate_mobile_number: String? = null,
+    val address_line1: String? = null,
+    val address_line2: String? = null,
+    val city: String? = null,
+    val state: String? = null,
+    val pincode: String? = null,
     val session_id: String,
     val session_name: String,
     val boards_json: String = "[]",
@@ -754,7 +763,7 @@ data class SimpleChildOrgSetupDto(
 
 @Serializable
 data class WorkspaceSyncPayloadDto(
-    val setup: SimpleChildOrgSetupDto? = null,
+    val setups: List<SimpleChildOrgSetupDto> = emptyList(),
     val students: List<StudentSyncDto> = emptyList(),
     val student_additional_fees: List<StudentAdditionalFeeDto> = emptyList(),
     val student_fee_payments: List<StudentFeePaymentDto> = emptyList(),
@@ -769,4 +778,3 @@ data class WorkspaceSyncPayloadDto(
     val calendar_events: List<CalendarEventDto> = emptyList(),
     val exam_subject_settings: List<ExamSubjectSettingDto> = emptyList()
 )
-

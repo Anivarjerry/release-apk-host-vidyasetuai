@@ -1,12 +1,41 @@
 package com.vidyasetuai.feature_institution.data.local.entity
+
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+
 @Entity(tableName = "local_child_org_setups")
 data class LocalChildOrgSetupEntity(
     @PrimaryKey
     @ColumnInfo(name = "organization_id")
     val organizationId: String,
+
+    @ColumnInfo(name = "organization_name")
+    val organizationName: String?,
+
+    @ColumnInfo(name = "email")
+    val email: String?,
+
+    @ColumnInfo(name = "mobile_number")
+    val mobileNumber: String?,
+
+    @ColumnInfo(name = "alternate_mobile_number")
+    val alternateMobileNumber: String?,
+
+    @ColumnInfo(name = "address_line1")
+    val addressLine1: String?,
+
+    @ColumnInfo(name = "address_line2")
+    val addressLine2: String?,
+
+    @ColumnInfo(name = "city")
+    val city: String?,
+
+    @ColumnInfo(name = "state")
+    val state: String?,
+
+    @ColumnInfo(name = "pincode")
+    val pincode: String?,
 
     @ColumnInfo(name = "session_id")
     val sessionId: String,

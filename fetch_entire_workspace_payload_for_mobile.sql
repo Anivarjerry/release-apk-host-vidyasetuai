@@ -61,9 +61,18 @@ BEGIN
         -- ----------------------------------------------------
         -- ENTITY 1: Child Org Setup (चाइल्ड सेटअप विवरण)
         -- ----------------------------------------------------
-        'setup', (
-            SELECT jsonb_build_object(
+        'setups', (
+            SELECT COALESCE(jsonb_agg(jsonb_build_object(
                 'organization_id', org.id,
+                'organization_name', org.name,
+                'email', prof.email,
+                'mobile_number', prof.mobile_number,
+                'alternate_mobile_number', prof.alternate_mobile_number,
+                'address_line1', prof.address_line1,
+                'address_line2', prof.address_line2,
+                'city', prof.city,
+                'state', prof.state,
+                'pincode', prof.pincode,
                 'session_id', prof.active_session_id,
                 'session_name', sess.name,
                 'is_setup_complete', COALESCE(prof.is_setup_complete, false),
@@ -158,18 +167,23 @@ BEGIN
                               AND osclass.organization_id = org.id 
                               AND osclass.session_id = prof.active_session_id 
                               AND osclass.is_active = true 
-                              AND osclass.is_deleted = false
+                              AND osub.is_deleted = false
                         )
                     ))
                     FROM public.organization_classes oc
                     LEFT JOIN public.global_classes gc ON oc.class_id = gc.id
                     WHERE oc.organization_id = org.id AND oc.is_active = true AND oc.is_deleted = false
                 ), '[]'::jsonb)::text
-            )
+            )), '[]'::jsonb)
             FROM public.organizations org
             LEFT JOIN public.organization_profiles prof ON prof.organization_id = org.id
             LEFT JOIN public.global_sessions sess ON prof.active_session_id = sess.id
-            WHERE org.id = p_child_organization_id LIMIT 1
+            WHERE (
+                (p_user_role IN ('Student', 'Guardian') AND org.id = p_child_organization_id)
+                OR
+                (p_user_role NOT IN ('Student', 'Guardian') AND org.parent_organization_id = v_resolved_parent_org_id)
+            )
+            AND org.is_active = true AND org.is_deleted = false
         ),
 
         -- ----------------------------------------------------

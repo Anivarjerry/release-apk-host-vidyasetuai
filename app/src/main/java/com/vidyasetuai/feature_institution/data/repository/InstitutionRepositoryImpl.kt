@@ -849,10 +849,19 @@ class InstitutionRepositoryImpl(
             lastSyncedAt = null // Fresh sync pulls all
         )
         
-        // 1. Map Child Setup
-        val localSetup = payload.setup?.let { setup ->
+        // 1. Map Child Setups
+        val localSetups = payload.setups.map { setup ->
             LocalChildOrgSetupEntity(
                 organizationId = setup.organization_id,
+                organizationName = setup.organization_name,
+                email = setup.email,
+                mobileNumber = setup.mobile_number,
+                alternateMobileNumber = setup.alternate_mobile_number,
+                addressLine1 = setup.address_line1,
+                addressLine2 = setup.address_line2,
+                city = setup.city,
+                state = setup.state,
+                pincode = setup.pincode,
                 sessionId = setup.session_id,
                 sessionName = setup.session_name,
                 boardsJson = setup.boards_json,
@@ -866,6 +875,7 @@ class InstitutionRepositoryImpl(
                 syncState = "SYNCED"
             )
         }
+
         
         // 2. Map Students
         val localStudents = payload.students.map { dto ->
@@ -1274,7 +1284,7 @@ class InstitutionRepositoryImpl(
 
         android.util.Log.d("OfflineSync", "Overwriting local database atomically with replaceWorkspaceDataPayload transaction...")
         dao.replaceWorkspaceDataPayload(
-            setup = localSetup,
+            setups = localSetups,
             students = localStudents,
             fees = localFees,
             payments = localPayments,
@@ -1289,6 +1299,7 @@ class InstitutionRepositoryImpl(
             calendarEvents = localCalendarEvents,
             examSettings = localExamSettings
         )
+
         
         android.util.Log.d("OfflineSync", "Consolidated Sync Workspace Completed Successfully!")
     }

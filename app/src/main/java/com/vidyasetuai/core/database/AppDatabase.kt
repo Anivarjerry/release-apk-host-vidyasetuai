@@ -19,9 +19,9 @@ import com.vidyasetuai.feature_campus.data.local.entity.MessageEntity
 import com.vidyasetuai.feature_campus.data.local.entity.ModerationSettingsEntity
 import com.vidyasetuai.feature_institution.data.local.dao.InstitutionDao
 import com.vidyasetuai.feature_institution.data.local.entity.*
+
 @Database(
     entities = [
-        // ── Core / Cross-feature ───────────────────────────────────────────
         CaseStudyEntity::class,
         CaseStudyDetailEntity::class,
         UserProfileEntity::class,
@@ -42,7 +42,6 @@ import com.vidyasetuai.feature_institution.data.local.entity.*
         MessageEntity::class,
         ModerationSettingsEntity::class,
 
-        // ── Institution — Reorganized Database Entities ─────────────────────
         WorkspaceEntity::class,
         LocalChildOrgSetupEntity::class,
         LocalParentBusEntity::class,
@@ -64,7 +63,7 @@ import com.vidyasetuai.feature_institution.data.local.entity.*
         LocalStudentExamMarkEntity::class,
         LocalBusRouteEntity::class
     ],
-    version = 25,
+    version = 26,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

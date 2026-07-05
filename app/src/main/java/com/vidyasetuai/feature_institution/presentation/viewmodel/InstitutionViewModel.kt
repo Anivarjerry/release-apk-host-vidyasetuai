@@ -241,8 +241,8 @@ class InstitutionViewModel(
             is InstitutionEvent.ToggleCameraScanner -> {
                 _uiState.value = _uiState.value.copy(isCameraScannerOpen = event.open)
             }
-            is InstitutionEvent.MarkStudentBoarded -> {
-                markStudentBoarded(event.studentId, event.latitude, event.longitude, event.staffId)
+            is InstitutionEvent.MarkStudentTripAttendance -> {
+                markStudentTripAttendance(event.studentId, event.status, event.latitude, event.longitude, event.staffId)
             }
             is InstitutionEvent.LoadRemarks -> {
                 loadRemarks(event.sessionId, event.parentOrgId)
@@ -469,6 +469,7 @@ class InstitutionViewModel(
                 }
 
                 if (workspace.role == "Driver") {
+                    loadAllBuses(workspace.parentOrgId)
                     repository.getDriverBusDetails(workspace.id).onSuccess { details ->
                         _uiState.value = _uiState.value.copy(driverBusDetails = details)
                         if (details != null && details.busId.isNotEmpty()) {
@@ -642,7 +643,9 @@ class InstitutionViewModel(
             leaves = emptyList(),
             feePayments = emptyList(),
             studentAttendance = emptyList(),
-            offlineStudents = emptyList()
+            offlineStudents = emptyList(),
+            activeBusTrip = null,
+            busTripAttendanceLogs = emptyList()
         )
         viewModelScope.launch {
             repository.clearWorkspaceSpecificData()
@@ -668,7 +671,9 @@ class InstitutionViewModel(
             leaves = emptyList(),
             feePayments = emptyList(),
             studentAttendance = emptyList(),
-            offlineStudents = emptyList()
+            offlineStudents = emptyList(),
+            activeBusTrip = null,
+            busTripAttendanceLogs = emptyList()
         )
         viewModelScope.launch {
             repository.clearWorkspaceSpecificData()
@@ -1246,17 +1251,15 @@ class InstitutionViewModel(
         }
     }
 
-    private fun markStudentBoarded(studentId: String, latitude: Double?, longitude: Double?, staffId: String) {
+    private fun markStudentTripAttendance(studentId: String, status: String, latitude: Double?, longitude: Double?, staffId: String) {
         val trip = _uiState.value.activeBusTrip ?: return
         viewModelScope.launch {
-            val alreadyScanned = _uiState.value.busTripAttendanceLogs.any { it.studentId == studentId }
-            if (alreadyScanned) {
-                _uiState.value = _uiState.value.copy(errorMessage = "Student already boarded")
-                return@launch
-            }
-            
-            val logId = java.util.UUID.randomUUID().toString()
+            val db = com.vidyasetuai.core.database.AppDatabase.getDatabase(appContext)
+            val existingLogs = db.institutionDao().getBusTripAttendanceLogs(trip.id)
+            val existingLog = existingLogs.find { it.studentId == studentId }
+            val logId = existingLog?.id ?: java.util.UUID.randomUUID().toString()
             val now = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", java.util.Locale.US).format(java.util.Date())
+            
             val log = ParentBusTripAttendanceLog(
                 id = logId,
                 parentOrganizationId = trip.parentOrganizationId,
@@ -1264,7 +1267,7 @@ class InstitutionViewModel(
                 activeSessionId = trip.activeSessionId,
                 tripId = trip.id,
                 studentId = studentId,
-                status = "Boarded",
+                status = status,
                 scanLatitude = latitude,
                 scanLongitude = longitude,
                 scannedAt = now,
@@ -1272,14 +1275,14 @@ class InstitutionViewModel(
                 syncStatus = "Offline_Pending",
                 isActive = true,
                 isDeleted = false,
-                createdAt = now,
+                createdAt = existingLog?.scannedAt ?: now,
                 updatedAt = now,
-                createdBy = staffId,
+                createdBy = existingLog?.scannedByStaffName ?: staffId,
                 updatedBy = staffId
             )
             
             repository.submitBusAttendanceLog(log).fold(
-                onSuccess = { submittedLog ->
+                onSuccess = {
                     loadTripAttendanceLogs(trip.id)
                 },
                 onFailure = { e ->

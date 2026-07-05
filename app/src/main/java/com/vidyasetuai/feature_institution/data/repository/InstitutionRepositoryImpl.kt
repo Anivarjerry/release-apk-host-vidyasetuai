@@ -1742,7 +1742,7 @@ class InstitutionRepositoryImpl(
             driverPhone = driver?.mobileNumber,
             tripType = tripType,
             status = "Ongoing",
-            startTime = System.currentTimeMillis().toString(),
+            startTime = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", java.util.Locale.US).format(java.util.Date()),
             endTime = null,
             isActive = true,
             isDeleted = false,
@@ -1767,12 +1767,15 @@ class InstitutionRepositoryImpl(
         )
         runCatching {
             remoteDataSource.upsertBusTrip(dto)
+        }.onFailure { e ->
+            android.util.Log.e("SupabaseSync", "startBusTrip remote push FAILURE: error=${e.message}", e)
         }
         trip.toDomain()
     }
     
     override suspend fun endBusTrip(tripId: String): Result<Unit> = runCatching {
-        dao.updateBusTripStatus(tripId, "Completed", null, System.currentTimeMillis().toString(), "PENDING_UPDATE")
+        val now = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", java.util.Locale.US).format(java.util.Date())
+        dao.updateBusTripStatus(tripId, "Completed", null, now, "PENDING_UPDATE")
         val trip = dao.getBusTripById(tripId)
         if (trip != null) {
             val dto = ParentBusTripDto(
@@ -1790,6 +1793,8 @@ class InstitutionRepositoryImpl(
             )
             runCatching {
                 remoteDataSource.upsertBusTrip(dto)
+            }.onFailure { e ->
+                android.util.Log.e("SupabaseSync", "endBusTrip remote push FAILURE: error=${e.message}", e)
             }
         }
     }
@@ -1799,7 +1804,7 @@ class InstitutionRepositoryImpl(
         val entity = LocalParentBusTripAttendanceLogEntity(
             id = log.id,
             parentOrganizationId = log.parentOrganizationId,
-            organizationId = log.organizationId,
+            organizationId = student?.organizationId ?: log.organizationId,
             activeSessionId = log.activeSessionId,
             tripId = log.tripId,
             studentId = log.studentId,
@@ -1839,6 +1844,8 @@ class InstitutionRepositoryImpl(
         runCatching {
             remoteDataSource.upsertBusAttendanceLogs(listOf(dto))
             dao.markBusTripAttendanceLogSynced(entity.id)
+        }.onFailure { e ->
+            android.util.Log.e("SupabaseSync", "submitBusAttendanceLog remote push FAILURE: error=${e.message}", e)
         }
         log
     }
@@ -2143,7 +2150,19 @@ class InstitutionRepositoryImpl(
         )
     }
     
-    override suspend fun getStudentsAssignedToBus(busId: String): Result<List<LocalStudentEntity>> = Result.success(emptyList())
+    override suspend fun getStudentsAssignedToBus(busId: String): Result<List<LocalStudentEntity>> = runCatching {
+        if (busId.isEmpty()) return@runCatching emptyList()
+        val remoteAssignments = remoteDataSource.fetchStudentBusAssignmentsByBusId(busId)
+        val studentIds = remoteAssignments.map { it.student_id }
+        val studentsList = mutableListOf<LocalStudentEntity>()
+        studentIds.forEach { studentId ->
+            val localStudent = dao.getStudentById(studentId)
+            if (localStudent != null) {
+                studentsList.add(localStudent)
+            }
+        }
+        studentsList
+    }
     
     override suspend fun getStudentHomeLocation(studentId: String): Result<StudentHomeLocation?> = runCatching {
         try {

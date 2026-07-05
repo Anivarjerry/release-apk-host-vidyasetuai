@@ -53,7 +53,7 @@ sealed class InstitutionEvent {
     data class LoadAssignedStudents(val busId: String) : InstitutionEvent()
     data class UpdateSearchQuery(val query: String) : InstitutionEvent()
     data class ToggleCameraScanner(val open: Boolean) : InstitutionEvent()
-    data class MarkStudentBoarded(val studentId: String, val latitude: Double?, val longitude: Double?, val staffId: String) : InstitutionEvent()
+    data class MarkStudentTripAttendance(val studentId: String, val status: String, val latitude: Double?, val longitude: Double?, val staffId: String) : InstitutionEvent()
 
     // Remarks System Events
     data class LoadRemarks(val sessionId: String, val parentOrgId: String) : InstitutionEvent()

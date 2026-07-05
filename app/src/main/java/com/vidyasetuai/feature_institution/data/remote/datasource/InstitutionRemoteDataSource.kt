@@ -743,10 +743,29 @@ class InstitutionRemoteDataSource {
             }.decodeList()
     }
 
+    suspend fun fetchStudentBusAssignmentsByBusId(busId: String): List<StudentBusAssignmentDto> {
+        if (busId.isEmpty()) return emptyList()
+        return SupabaseClient.client.from("organization_student_bus_assignments")
+            .select(columns = Columns.raw("*")) {
+                filter {
+                    eq("bus_id", busId)
+                    eq("is_active", true)
+                    eq("is_deleted", false)
+                }
+            }.decodeList()
+    }
+
     // ── Upsert / Sync Pushes ──────────────────────────────────────────────────
 
     suspend fun upsertBusAttendanceLogs(logs: List<ParentBusTripAttendanceLogDto>) {
-        SupabaseClient.client.from("organization_parent_bus_trip_attendance_logs").upsert(logs)
+        android.util.Log.d("SupabaseSync", "upsertBusAttendanceLogs calling: $logs")
+        try {
+            val response = SupabaseClient.client.from("organization_parent_bus_trip_attendance_logs").upsert(logs)
+            android.util.Log.d("SupabaseSync", "upsertBusAttendanceLogs SUCCESS: $response")
+        } catch (e: Exception) {
+            android.util.Log.e("SupabaseSync", "upsertBusAttendanceLogs FAILURE: error=${e.message}", e)
+            throw e
+        }
     }
 
     suspend fun upsertRemarks(remarks: List<OrganizationRemarkDto>) {
@@ -803,7 +822,14 @@ class InstitutionRemoteDataSource {
     }
 
     suspend fun upsertBusTrip(trip: ParentBusTripDto) {
-        SupabaseClient.client.from("organization_parent_bus_trips").upsert(trip)
+        android.util.Log.d("SupabaseSync", "upsertBusTrip calling: $trip")
+        try {
+            val response = SupabaseClient.client.from("organization_parent_bus_trips").upsert(trip)
+            android.util.Log.d("SupabaseSync", "upsertBusTrip SUCCESS: $response")
+        } catch (e: Exception) {
+            android.util.Log.e("SupabaseSync", "upsertBusTrip FAILURE: error=${e.message}", e)
+            throw e
+        }
     }
 
     suspend fun fetchGlobalStaffRoles(): List<GlobalStaffRoleDto> {

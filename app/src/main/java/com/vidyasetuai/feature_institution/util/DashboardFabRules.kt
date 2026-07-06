@@ -149,6 +149,15 @@ object DashboardFabRules {
                     else -> commonItems
                 }
             }
+            "profile" -> listOf(
+                SpeedDialItem(
+                    id = "search_user",
+                    labelEn = "Search Users",
+                    labelHi = "यूज़र्स खोजें",
+                    icon = Lucide.Search,
+                    route = "fab_search_user"
+                )
+            )
             else -> emptyList()
         }
     }

@@ -119,6 +119,7 @@ import com.vidyasetuai.feature_case_study.presentation.screen.subscreen.AddExper
 import com.vidyasetuai.feature_case_study.presentation.screen.subscreen.QuicksFabSubScreen
 import com.vidyasetuai.feature_case_study.presentation.screen.desbord.HomeFeedDesbord
 import com.vidyasetuai.feature_institution.presentation.screen.subscreens.AddJourneyFabSubScreen
+import com.vidyasetuai.feature_profile.presentation.screen.subscreen.SearchUserFabSubScreen
 
 data class NavState(
     val tab: String,
@@ -979,26 +980,52 @@ fun DashboardScreen(
                         }
                     }
                     "tournament" -> TournamentEvent(currentLanguage = currentLanguage, currentTheme = currentTheme)
-                    "profile" -> ProfileScreen(
-                        userId = userId,
-                        currentLanguage = currentLanguage,
-                        viewModel = profileViewModel,
-                        onCaseStudyClick = { caseStudyId ->
-                            selectedCaseStudyId = caseStudyId
-                            navigateTo("case_study_detail")
-                        },
-                        onInspirationsClick = { targetId, tabIndex ->
-                            inspirationsListUserId = targetId
-                            inspirationsDefaultTab = tabIndex
-                            navigateTo("inspirations_list")
-                        },
-                        onEditModeChange = { editing ->
-                            val route = if (editing) "edit_profile" else null
-                            institutionViewModel.onEvent(
-                                com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(route)
+                    "profile" -> {
+                        val activeSub = institutionViewModel.uiState.value.activeSubScreen
+                        if (activeSub == "fab_search_user") {
+                            SearchUserFabSubScreen(
+                                isHindi = isHindi,
+                                isDark = when (currentTheme) {
+                                    "dark" -> true
+                                    "light" -> false
+                                    else -> androidx.compose.foundation.isSystemInDarkTheme()
+                                },
+                                onBack = {
+                                    institutionViewModel.onEvent(
+                                        com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(null)
+                                    )
+                                },
+                                onUserClick = { targetUserId ->
+                                    institutionViewModel.onEvent(
+                                        com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(null)
+                                    )
+                                    selectedPublicProfileUserId = targetUserId
+                                    navigateTo("public_profile")
+                                }
+                            )
+                        } else {
+                            ProfileScreen(
+                                userId = userId,
+                                currentLanguage = currentLanguage,
+                                viewModel = profileViewModel,
+                                onCaseStudyClick = { caseStudyId ->
+                                    selectedCaseStudyId = caseStudyId
+                                    navigateTo("case_study_detail")
+                                },
+                                onInspirationsClick = { targetId, tabIndex ->
+                                    inspirationsListUserId = targetId
+                                    inspirationsDefaultTab = tabIndex
+                                    navigateTo("inspirations_list")
+                                },
+                                onEditModeChange = { editing ->
+                                    val route = if (editing) "edit_profile" else null
+                                    institutionViewModel.onEvent(
+                                        com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(route)
+                                    )
+                                }
                             )
                         }
-                    )
+                    }
                 }
             }
         }
@@ -1171,7 +1198,8 @@ fun DashboardScreen(
                                     "fab_add_case_study",
                                     "fab_add_experience",
                                     "fab_quicks",
-                                    "fab_add_journey"
+                                    "fab_add_journey",
+                                    "fab_search_user"
                                 )
                                 if (!isHomeOrJourneyRoute && activeTab != "institute") {
                                     previousTabBeforeSubScreen = activeTab

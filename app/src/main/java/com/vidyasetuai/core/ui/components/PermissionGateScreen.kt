@@ -55,15 +55,13 @@ fun PermissionGateScreen(
     // Observe permission states locally
     var hasNotification by remember { mutableStateOf(PermissionManager.isNotificationPermissionGranted(context)) }
     var hasCamera by remember { mutableStateOf(PermissionManager.isCameraPermissionGranted(context)) }
-    var hasBatteryExemption by remember { mutableStateOf(PermissionManager.isBatteryOptimizationExemptionGranted(context)) }
 
     fun refreshStates() {
         hasNotification = PermissionManager.isNotificationPermissionGranted(context)
         hasCamera = PermissionManager.isCameraPermissionGranted(context)
-        hasBatteryExemption = PermissionManager.isBatteryOptimizationExemptionGranted(context)
 
         // If everything is satisfied, trigger callback to return to dashboard
-        if (hasNotification && hasCamera && hasBatteryExemption) {
+        if (hasNotification && hasCamera) {
             onAllPermissionsGranted()
         }
     }
@@ -93,7 +91,7 @@ fun PermissionGateScreen(
         refreshStates()
     }
 
-    val permissionItems = remember(hasNotification, hasCamera, hasBatteryExemption) {
+    val permissionItems = remember(hasNotification, hasCamera) {
         listOf(
             PermissionItem(
                 titleRes = R.string.perm_notification_title,
@@ -106,12 +104,6 @@ fun PermissionGateScreen(
                 descRes = R.string.perm_camera_desc,
                 isGranted = hasCamera,
                 icon = Lucide.Camera
-            ),
-            PermissionItem(
-                titleRes = R.string.perm_battery_title,
-                descRes = R.string.perm_battery_desc,
-                isGranted = hasBatteryExemption,
-                icon = Lucide.CircleAlert
             )
         )
     }
@@ -209,34 +201,14 @@ fun PermissionGateScreen(
             // Primary button: Grant permissions / Enable optimizations ignore
             Button(
                 onClick = {
-                    when {
-                        // 1. Request normal runtime permissions first (Camera, Notifications)
-                        !hasCamera || !hasNotification -> {
-                            val requestList = mutableListOf<String>()
-                            if (!hasCamera) requestList.add(Manifest.permission.CAMERA)
-                            if (!hasNotification && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                requestList.add(Manifest.permission.POST_NOTIFICATIONS)
-                            }
-                            permissionsLauncher.launch(requestList.toTypedArray())
+                    refreshStates()
+                    if (!hasCamera || !hasNotification) {
+                        val requestList = mutableListOf<String>()
+                        if (!hasCamera) requestList.add(Manifest.permission.CAMERA)
+                        if (!hasNotification && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            requestList.add(Manifest.permission.POST_NOTIFICATIONS)
                         }
-                        // 2. Prompt ignoring battery optimization
-                        !hasBatteryExemption -> {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                                val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-                                if (!powerManager.isIgnoringBatteryOptimizations(context.packageName)) {
-                                     val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                                         data = Uri.parse("package:${context.packageName}")
-                                     }
-                                     try {
-                                         context.startActivity(intent)
-                                     } catch (e: Exception) {
-                                         // Fallback if settings intent fails
-                                         val fallBackIntent = Intent(Settings.ACTION_SETTINGS)
-                                         context.startActivity(fallBackIntent)
-                                     }
-                                }
-                            }
-                        }
+                        permissionsLauncher.launch(requestList.toTypedArray())
                     }
                 },
                 shape = RoundedCornerShape(21.dp),

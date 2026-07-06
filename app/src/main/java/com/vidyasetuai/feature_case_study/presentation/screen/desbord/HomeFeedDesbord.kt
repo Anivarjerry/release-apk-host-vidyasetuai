@@ -8,7 +8,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -30,6 +33,7 @@ import com.vidyasetuai.feature_case_study.data.repository.CaseStudyRepositoryImp
 import com.vidyasetuai.feature_case_study.data.repository.QuickRepository
 import com.vidyasetuai.feature_case_study.domain.model.CaseStudy
 import com.vidyasetuai.feature_case_study.domain.model.Quick
+import com.vidyasetuai.feature_case_study.presentation.screen.subscreen.StackedQuicksCard
 import com.vidyasetuai.feature_feed.data.repository.ExperienceRepository
 import com.vidyasetuai.feature_feed.domain.model.Experience
 import kotlinx.coroutines.flow.firstOrNull
@@ -68,6 +72,13 @@ fun HomeFeedDesbord(
     experienceRepo: ExperienceRepository,
     quickRepo: QuickRepository,
     onNavigateToSubScreen: (String) -> Unit,
+    cachedQuicksList: List<Quick>,
+    onQuicksListChange: (List<Quick>) -> Unit,
+    cachedFullFeedList: androidx.compose.runtime.snapshots.SnapshotStateList<FeedItem>,
+    isFeedLoaded: Boolean,
+    onFeedLoadedChange: (Boolean) -> Unit,
+    onQuickClick: (List<Quick>, Int) -> Unit,
+    homeTabClickCount: Int,
     modifier: Modifier = Modifier
 ) {
     val isHindi = currentLanguage == "hi"
@@ -91,21 +102,21 @@ fun HomeFeedDesbord(
     var selectedTab by remember { mutableStateOf(0) }
 
     // Live Feed Cache Lists
-    var quicksList by remember { mutableStateOf<List<Quick>>(emptyList()) }
-    val fullFeedList = remember { mutableStateListOf<FeedItem>() }
-    var isLoading by remember { mutableStateOf(true) }
+    val quicksList = cachedQuicksList
+    val fullFeedList = cachedFullFeedList
+    var isLoading by remember { mutableStateOf(!isFeedLoaded) }
     var isPagingLoading by remember { mutableStateOf(false) }
 
     // Initial Live Fetch Function (No offline caching)
-    fun fetchLatestFeed(showLoader: Boolean = false) {
+    fun fetchLatestFeed(showLoader: Boolean = false): kotlinx.coroutines.Job {
         if (showLoader) {
             isLoading = true
         }
-        coroutineScope.launch {
+        return coroutineScope.launch {
             try {
                 // Fetch Quicks
                 val quicksResult = quickRepo.getQuicks(userId)
-                quicksList = quicksResult.getOrDefault(emptyList()).take(20)
+                onQuicksListChange(quicksResult.getOrDefault(emptyList()).take(20))
 
                 // Fetch Experiences
                 val experiencesResult = experienceRepo.getExperiences(userId)
@@ -137,7 +148,21 @@ fun HomeFeedDesbord(
 
     // Trigger initial fetch
     LaunchedEffect(Unit) {
-        fetchLatestFeed(showLoader = true)
+        if (!isFeedLoaded) {
+            fetchLatestFeed(showLoader = true)
+            onFeedLoadedChange(true)
+        }
+    }
+
+    // Trigger scroll to top or reload when Home bottom tab is clicked
+    LaunchedEffect(homeTabClickCount) {
+        if (homeTabClickCount > 0) {
+            if (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0) {
+                listState.animateScrollToItem(0)
+            } else {
+                fetchLatestFeed(showLoader = true)
+            }
+        }
     }
 
     // Detect Scroll to Bottom for Pagination (infinite scrolling load more)
@@ -210,6 +235,7 @@ fun HomeFeedDesbord(
     }
 
     Scaffold(
+        contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0.dp),
         topBar = {
             Column(modifier = Modifier.fillMaxWidth().background(backgroundColor)) {
 
@@ -313,203 +339,165 @@ fun HomeFeedDesbord(
                     }
                 }
 
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 80.dp)
+                var isRefreshing by remember { mutableStateOf(false) }
+
+                PullToRefreshLayout(
+                    isRefreshing = isRefreshing,
+                    onRefresh = {
+                        isRefreshing = true
+                        coroutineScope.launch {
+                            fetchLatestFeed(showLoader = false).join()
+                            isRefreshing = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    // Horizontal Quicks Scroll at the top of the feed (Only on 'ALL' tab)
-                    if (selectedTab == 0 && quicksList.isNotEmpty()) {
-                        item {
-                            Column(modifier = Modifier.padding(top = 16.dp, bottom = 12.dp)) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Lucide.Zap,
-                                            contentDescription = null,
-                                            tint = Color(0xFFFBBF24),
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 80.dp)
+                    ) {
+                        // Horizontal Quicks Scroll at the top of the feed (Only on 'ALL' tab)
+                        if (selectedTab == 0 && quicksList.isNotEmpty()) {
+                            item {
+                                Column(modifier = Modifier.padding(top = 16.dp, bottom = 12.dp)) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = Lucide.Zap,
+                                                contentDescription = null,
+                                                tint = Color(0xFFFBBF24),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = if (isHindi) "क्विक" else "Quicks",
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = textColor
+                                            )
+                                        }
+
                                         Text(
-                                            text = if (isHindi) "क्विक" else "Quicks",
-                                            fontSize = 15.sp,
+                                            text = if (isHindi) "सभी देखें →" else "See All →",
+                                            fontSize = 13.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = textColor
+                                            color = AppColors.EmeraldGreen,
+                                            modifier = Modifier.clickable { onNavigateToSubScreen("fab_quicks") }
                                         )
                                     }
 
-                                    Text(
-                                        text = if (isHindi) "सभी देखें →" else "See All →",
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = AppColors.EmeraldGreen,
-                                        modifier = Modifier.clickable { onNavigateToSubScreen("fab_quicks") }
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    val groupedQuicks = remember(quicksList) {
+                                        quicksList.groupBy { it.authorUserId }.values.toList()
+                                    }
+
+                                    LazyRow(
+                                        contentPadding = PaddingValues(horizontal = 16.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        itemsIndexed(groupedQuicks, key = { _, stack -> "quick-stack-${stack.first().authorUserId}" }) { index, stack ->
+                                            StackedQuicksCard(
+                                                quicks = stack,
+                                                isDark = isDark,
+                                                dividerColor = dividerColor,
+                                                onClick = { onQuickClick(stack, 0) }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            item {
+                                Divider(color = dividerColor.copy(alpha = 0.4f), thickness = 0.5.dp)
+                            }
+                        }
+
+                        // Mixed Feed list items
+                        items(filteredFeed, key = {
+                            when (it) {
+                                is FeedItem.CaseStudyItem -> "feed-case-${it.caseStudy.id}"
+                                is FeedItem.ExperienceItem -> "feed-exp-${it.experience.id}"
+                                is FeedItem.QuickItem -> "feed-quick-${it.quick.id}"
+                            }
+                        }) { item ->
+                            when (item) {
+                                is FeedItem.CaseStudyItem -> {
+                                    CaseStudyFeedCard(
+                                        caseStudy = item.caseStudy,
+                                        cardBgColor = cardBgColor,
+                                        textColor = textColor,
+                                        subtitleColor = subtitleColor,
+                                        dividerColor = dividerColor,
+                                        isHindi = isHindi,
+                                        onExploreClick = {
+                                            onNavigateToSubScreen("case_study_detail:${item.caseStudy.id}")
+                                        },
+                                        onReactClick = {
+                                            coroutineScope.launch {
+                                                caseStudyRepo.toggleReaction(item.caseStudy.id, userId).onSuccess {
+                                                    fetchLatestFeed()
+                                                }
+                                            }
+                                        }
                                     )
                                 }
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                LazyRow(
-                                    contentPadding = PaddingValues(horizontal = 16.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    items(quicksList, key = { "quick-row-${it.id}" }) { quick ->
-                                        // Quick Small Card in Row
-                                        Box(
-                                            modifier = Modifier
-                                                .width(115.dp)
-                                                .aspectRatio(3f / 4f)
-                                                .clip(RoundedCornerShape(12.dp))
-                                                .border(0.5.dp, dividerColor.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
-                                                .background(if (isDark) Color(0xFF1E1E1E) else Color(0xFFF7FAFC))
-                                                .clickable { onNavigateToSubScreen("fab_quicks") }
-                                        ) {
-                                            if (!quick.coverImageUrl.isNullOrBlank()) {
-                                                AsyncImage(
-                                                    model = quick.coverImageUrl,
-                                                    contentDescription = null,
-                                                    contentScale = ContentScale.Crop,
-                                                    modifier = Modifier.fillMaxSize()
-                                                )
-                                            }
-
-                                            // Top Play/Time badge
-                                            Row(
-                                                modifier = Modifier
-                                                    .align(Alignment.TopStart)
-                                                    .padding(6.dp)
-                                                    .clip(RoundedCornerShape(4.dp))
-                                                    .background(Color.Black.copy(alpha = 0.6f))
-                                                    .padding(horizontal = 4.dp, vertical = 2.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Icon(
-                                                    imageVector = Lucide.Play,
-                                                    contentDescription = null,
-                                                    tint = Color.White,
-                                                    modifier = Modifier.size(9.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(3.dp))
-                                                Text("23s", fontSize = 8.sp, color = Color.White, fontWeight = FontWeight.Bold)
-                                            }
-
-                                            // Bottom Details Overlay
-                                            Column(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .align(Alignment.BottomStart)
-                                                    .background(Color.Black.copy(alpha = 0.5f))
-                                                    .padding(6.dp)
-                                            ) {
-                                                Text(
-                                                    text = quick.title,
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = Color.White,
-                                                    maxLines = 2,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                                Spacer(modifier = Modifier.height(2.dp))
-                                                Text(
-                                                    text = "⚡ 18h left",
-                                                    fontSize = 8.sp,
-                                                    color = Color.White.copy(alpha = 0.8f),
-                                                    fontWeight = FontWeight.Medium
-                                                )
+                                is FeedItem.ExperienceItem -> {
+                                    ExperienceFeedCard(
+                                        experience = item.experience,
+                                        cardBgColor = cardBgColor,
+                                        textColor = textColor,
+                                        subtitleColor = subtitleColor,
+                                        dividerColor = dividerColor,
+                                        isHindi = isHindi,
+                                        onReactClick = {
+                                            coroutineScope.launch {
+                                                experienceRepo.toggleInspiration(item.experience.id, userId).onSuccess {
+                                                    fetchLatestFeed()
+                                                }
                                             }
                                         }
-                                    }
+                                    )
+                                }
+                                is FeedItem.QuickItem -> {
+                                    QuickFeedCard(
+                                        quick = item.quick,
+                                        cardBgColor = cardBgColor,
+                                        textColor = textColor,
+                                        subtitleColor = subtitleColor,
+                                        dividerColor = dividerColor,
+                                        isHindi = isHindi,
+                                        onReactClick = {
+                                            coroutineScope.launch {
+                                                quickRepo.toggleHelpful(item.quick.id, userId).onSuccess {
+                                                    fetchLatestFeed()
+                                                }
+                                            }
+                                        }
+                                    )
                                 }
                             }
-                            Divider(color = dividerColor.copy(alpha = 0.4f), thickness = 0.5.dp)
                         }
-                    }
 
-                    // Mixed Feed list items
-                    items(filteredFeed, key = {
-                        when (it) {
-                            is FeedItem.CaseStudyItem -> "feed-case-${it.caseStudy.id}"
-                            is FeedItem.ExperienceItem -> "feed-exp-${it.experience.id}"
-                            is FeedItem.QuickItem -> "feed-quick-${it.quick.id}"
-                        }
-                    }) { item ->
-                        when (item) {
-                            is FeedItem.CaseStudyItem -> {
-                                CaseStudyFeedCard(
-                                    caseStudy = item.caseStudy,
-                                    cardBgColor = cardBgColor,
-                                    textColor = textColor,
-                                    subtitleColor = subtitleColor,
-                                    dividerColor = dividerColor,
-                                    isHindi = isHindi,
-                                    onExploreClick = {
-                                        onNavigateToSubScreen("case_study_detail:${item.caseStudy.id}")
-                                    },
-                                    onReactClick = {
-                                        coroutineScope.launch {
-                                            caseStudyRepo.toggleReaction(item.caseStudy.id, userId).onSuccess {
-                                                fetchLatestFeed()
-                                            }
-                                        }
-                                    }
+                        // Shimmer loading at bottom while paging
+                        if (isPagingLoading) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(100.dp)
+                                        .padding(16.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(subtitleColor.copy(alpha = 0.1f))
+                                        .shimmerPulse()
                                 )
                             }
-                            is FeedItem.ExperienceItem -> {
-                                ExperienceFeedCard(
-                                    experience = item.experience,
-                                    cardBgColor = cardBgColor,
-                                    textColor = textColor,
-                                    subtitleColor = subtitleColor,
-                                    dividerColor = dividerColor,
-                                    isHindi = isHindi,
-                                    onReactClick = {
-                                        coroutineScope.launch {
-                                            experienceRepo.toggleInspiration(item.experience.id, userId).onSuccess {
-                                                fetchLatestFeed()
-                                            }
-                                        }
-                                    }
-                                )
-                            }
-                            is FeedItem.QuickItem -> {
-                                QuickFeedCard(
-                                    quick = item.quick,
-                                    cardBgColor = cardBgColor,
-                                    textColor = textColor,
-                                    subtitleColor = subtitleColor,
-                                    dividerColor = dividerColor,
-                                    isHindi = isHindi,
-                                    onReactClick = {
-                                        coroutineScope.launch {
-                                            quickRepo.toggleHelpful(item.quick.id, userId).onSuccess {
-                                                fetchLatestFeed()
-                                            }
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    // Shimmer loading at bottom while paging
-                    if (isPagingLoading) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(100.dp)
-                                    .padding(16.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(subtitleColor.copy(alpha = 0.1f))
-                                    .shimmerPulse()
-                            )
                         }
                     }
                 }
@@ -531,15 +519,15 @@ fun CaseStudyFeedCard(
     onReactClick: () -> Unit
 ) {
     Card(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(containerColor = cardBgColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .border(0.5.dp, dividerColor.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .border(0.5.dp, dividerColor.copy(alpha = 0.25f), RoundedCornerShape(10.dp))
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(12.dp)) {
             // Large Cover Image at top (16:9)
             if (!caseStudy.coverImageUrl.isNullOrBlank()) {
                 AsyncImage(
@@ -549,7 +537,7 @@ fun CaseStudyFeedCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(16 / 9f)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(8.dp))
                 )
                 Spacer(modifier = Modifier.height(12.dp))
             }
@@ -648,15 +636,15 @@ fun ExperienceFeedCard(
     onReactClick: () -> Unit
 ) {
     Card(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(containerColor = cardBgColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .border(0.5.dp, dividerColor.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .border(0.5.dp, dividerColor.copy(alpha = 0.25f), RoundedCornerShape(10.dp))
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(12.dp)) {
             // Header Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -773,15 +761,15 @@ fun QuickFeedCard(
     onReactClick: () -> Unit
 ) {
     Card(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(containerColor = cardBgColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .border(0.5.dp, dividerColor.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .border(0.5.dp, dividerColor.copy(alpha = 0.25f), RoundedCornerShape(10.dp))
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(12.dp)) {
             // Header Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -927,6 +915,172 @@ private fun getHoursLeft(expiresAtStr: String): String {
         }
     } catch (e: Exception) {
         "12h left"
+    }
+}
+
+@Composable
+private fun PullToRefreshLayout(
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    var pullOffset by remember { mutableStateOf(0f) }
+    val maxPull = 300f // max drag distance in pixels
+    val coroutineScope = rememberCoroutineScope()
+    
+    val nestedScrollConnection = remember(isRefreshing) {
+        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+            override fun onPreScroll(
+                available: androidx.compose.ui.geometry.Offset,
+                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource
+            ): androidx.compose.ui.geometry.Offset {
+                if (isRefreshing) return androidx.compose.ui.geometry.Offset.Zero
+                
+                if (available.y < 0 && pullOffset > 0) {
+                    val consumed = available.y
+                    pullOffset = (pullOffset + consumed).coerceAtLeast(0f)
+                    return androidx.compose.ui.geometry.Offset(0f, consumed)
+                }
+                return androidx.compose.ui.geometry.Offset.Zero
+            }
+
+            override fun onPostScroll(
+                consumed: androidx.compose.ui.geometry.Offset,
+                available: androidx.compose.ui.geometry.Offset,
+                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource
+            ): androidx.compose.ui.geometry.Offset {
+                if (isRefreshing) return androidx.compose.ui.geometry.Offset.Zero
+                
+                if (available.y > 0) {
+                    pullOffset = (pullOffset + available.y).coerceAtMost(maxPull)
+                    return androidx.compose.ui.geometry.Offset(0f, available.y)
+                }
+                return androidx.compose.ui.geometry.Offset.Zero
+            }
+
+            override suspend fun onPostFling(
+                consumed: androidx.compose.ui.unit.Velocity,
+                available: androidx.compose.ui.unit.Velocity
+            ): androidx.compose.ui.unit.Velocity {
+                if (pullOffset >= maxPull * 0.5f && !isRefreshing) {
+                    onRefresh()
+                }
+                pullOffset = 0f
+                return super.onPostFling(consumed, available)
+            }
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .nestedScroll(nestedScrollConnection)
+    ) {
+        Box(
+            modifier = Modifier
+                .graphicsLayer {
+                    translationY = pullOffset
+                }
+        ) {
+            content()
+        }
+
+        if (pullOffset > 0 || isRefreshing) {
+            val progress = (pullOffset / maxPull).coerceIn(0f, 1f)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = 12.dp + (pullOffset * 0.15f).dp)
+                    .size(width = 80.dp, height = 44.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                VidyaSetuRefreshIndicator(
+                    progress = progress,
+                    isRefreshing = isRefreshing
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VidyaSetuRefreshIndicator(
+    progress: Float,
+    isRefreshing: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "bridge_loading")
+    val particleProgress by if (isRefreshing) {
+        infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1200, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "particle_pos"
+        )
+    } else {
+        remember { mutableStateOf(0f) }
+    }
+
+    val color = AppColors.EmeraldGreen
+    
+    androidx.compose.foundation.Canvas(
+        modifier = modifier.size(width = 60.dp, height = 30.dp)
+    ) {
+        val width = size.width
+        val height = size.height
+        
+        val margin = width * 0.15f
+        val leftX = margin + (width * 0.1f) * (1f - progress)
+        val rightX = width - margin - (width * 0.1f) * (1f - progress)
+        val centerY = height * 0.6f
+        
+        drawCircle(
+            color = color,
+            radius = 3.5.dp.toPx(),
+            center = androidx.compose.ui.geometry.Offset(leftX, centerY)
+        )
+        
+        drawCircle(
+            color = color,
+            radius = 3.5.dp.toPx(),
+            center = androidx.compose.ui.geometry.Offset(rightX, centerY)
+        )
+        
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(leftX, centerY)
+            val controlY = centerY - (12.dp.toPx() * progress)
+            quadraticTo(
+                (leftX + rightX) / 2f,
+                controlY,
+                rightX,
+                centerY
+            )
+        }
+        
+        drawPath(
+            path = path,
+            color = color.copy(alpha = if (isRefreshing) 1f else progress.coerceIn(0.1f, 1f)),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = 2.dp.toPx(),
+                cap = androidx.compose.ui.graphics.StrokeCap.Round
+            )
+        )
+        
+        if (isRefreshing) {
+            val t = particleProgress
+            val controlY = centerY - 12.dp.toPx()
+            val particleX = (1 - t) * (1 - t) * leftX + 2 * (1 - t) * t * ((leftX + rightX) / 2f) + t * t * rightX
+            val particleY = (1 - t) * (1 - t) * centerY + 2 * (1 - t) * t * controlY + t * t * centerY
+            
+            drawCircle(
+                color = color,
+                radius = 3.dp.toPx(),
+                center = androidx.compose.ui.geometry.Offset(particleX, particleY)
+            )
+        }
     }
 }
 

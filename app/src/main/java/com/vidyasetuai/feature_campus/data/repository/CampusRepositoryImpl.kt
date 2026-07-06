@@ -336,4 +336,109 @@ class CampusRepositoryImpl(
             // Keep "User"
         }
     }
+
+    override suspend fun getMutualInspirations(userId: String): Result<List<com.vidyasetuai.feature_profile.domain.model.UserProfile>> = runCatching {
+        val inspired = profileRemoteDS.getInspiredUsers(userId)
+        val inspiring = profileRemoteDS.getInspiringUsers(userId)
+        
+        val mutualDtos = inspired.filter { u -> inspiring.any { it.user_id == u.user_id } }
+        
+        mutualDtos.map { dto ->
+            com.vidyasetuai.feature_profile.domain.model.UserProfile(
+                userId = dto.user_id,
+                email = "",
+                isActive = dto.is_active,
+                isDeleted = dto.is_deleted,
+                username = dto.username,
+                firstName = dto.first_name,
+                lastName = dto.last_name,
+                fullName = dto.full_name,
+                profilePictureUrl = dto.profile_picture_url,
+                coverPhotoUrl = dto.cover_photo_url,
+                bio = dto.bio,
+                preferredLanguage = dto.preferred_language,
+                isVerified = dto.is_verified,
+                gender = dto.gender,
+                dateOfBirth = dto.date_of_birth ?: "",
+                totalInspiringCount = dto.total_inspiring_count,
+                totalInspiredCount = dto.total_inspired_count
+            )
+        }
+    }
+
+    override suspend fun getOrCreatePrivateRoom(userA: String, userB: String): Result<com.vidyasetuai.feature_campus.domain.model.PrivateRoom> = runCatching {
+        val dto = remoteDataSource.getOrCreatePrivateRoom(userA, userB)
+        com.vidyasetuai.feature_campus.domain.model.PrivateRoom(
+            id = dto.id,
+            user1Id = dto.user1Id,
+            user2Id = dto.user2Id,
+            createdAt = dto.createdAt
+        )
+    }
+
+    override suspend fun getPrivateMessages(roomId: String): Result<List<com.vidyasetuai.feature_campus.domain.model.PrivateMessage>> = runCatching {
+        val list = remoteDataSource.getPrivateMessages(roomId)
+        list.map { dto ->
+            com.vidyasetuai.feature_campus.domain.model.PrivateMessage(
+                id = dto.id,
+                roomId = dto.roomId,
+                senderId = dto.senderId,
+                messageText = dto.messageText,
+                mediaUrl = dto.mediaUrl,
+                isSaved = dto.isSaved,
+                createdAt = dto.createdAt
+            )
+        }
+    }
+
+    override suspend fun sendPrivateMessage(
+        roomId: String,
+        senderId: String,
+        text: String?,
+        mediaUrl: String?
+    ): Result<com.vidyasetuai.feature_campus.domain.model.PrivateMessage> = runCatching {
+        if (text != null && !isContentAppropriate(text)) {
+            throw Exception("Appropriate language violation: Blocked keywords detected.")
+        }
+        val dto = remoteDataSource.sendPrivateMessage(roomId, senderId, text, mediaUrl)
+        com.vidyasetuai.feature_campus.domain.model.PrivateMessage(
+            id = dto.id,
+            roomId = dto.roomId,
+            senderId = dto.senderId,
+            messageText = dto.messageText,
+            mediaUrl = dto.mediaUrl,
+            isSaved = dto.isSaved,
+            createdAt = dto.createdAt
+        )
+    }
+
+    override suspend fun toggleSavePrivateMessage(
+        messageId: String,
+        isSaved: Boolean
+    ): Result<com.vidyasetuai.feature_campus.domain.model.PrivateMessage> = runCatching {
+        val dto = remoteDataSource.toggleSavePrivateMessage(messageId, isSaved)
+        com.vidyasetuai.feature_campus.domain.model.PrivateMessage(
+            id = dto.id,
+            roomId = dto.roomId,
+            senderId = dto.senderId,
+            messageText = dto.messageText,
+            mediaUrl = dto.mediaUrl,
+            isSaved = dto.isSaved,
+            createdAt = dto.createdAt
+        )
+    }
+
+    override fun observePrivateMessages(roomId: String): Flow<com.vidyasetuai.feature_campus.domain.model.PrivateMessage> {
+        return remoteDataSource.subscribeToPrivateMessages(roomId).map { dto ->
+            com.vidyasetuai.feature_campus.domain.model.PrivateMessage(
+                id = dto.id,
+                roomId = dto.roomId,
+                senderId = dto.senderId,
+                messageText = dto.messageText,
+                mediaUrl = dto.mediaUrl,
+                isSaved = dto.isSaved,
+                createdAt = dto.createdAt
+            )
+        }
+    }
 }

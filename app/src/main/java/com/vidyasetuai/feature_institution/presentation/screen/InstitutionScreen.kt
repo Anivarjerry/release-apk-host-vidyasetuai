@@ -988,7 +988,12 @@ fun WorkspaceContainer(
                             state = state,
                             isHindi = isHindi,
                             isDark = isDark,
-                            onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
+                            viewModel = viewModel,
+                            userId = userId,
+                            onBack = {
+                                viewModel.onEvent(InstitutionEvent.ClearAttendanceFilters)
+                                viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null))
+                            }
                         )
                         "fab_fees" -> CollectFeeFabSubScreen(
                             state = state,

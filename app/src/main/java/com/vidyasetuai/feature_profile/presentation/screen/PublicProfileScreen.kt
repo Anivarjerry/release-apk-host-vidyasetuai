@@ -22,6 +22,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.layout.ContentScale
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.ArrowLeft
@@ -116,35 +118,150 @@ fun PublicProfileScreen(
         }
     }
 
-    LazyColumn(
+    val lazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val thresholdPx = with(density) { 180.dp.toPx() }
+    val scrollFraction by remember {
+        derivedStateOf {
+            if (lazyListState.firstVisibleItemIndex > 0) {
+                1f
+            } else {
+                (lazyListState.firstVisibleItemScrollOffset.toFloat() / thresholdPx).coerceIn(0f, 1f)
+            }
+        }
+    }
+    
+    val hasStatusBarInset = WindowInsets.statusBars.getTop(density) > 0
+    val fallbackPadding = if (hasStatusBarInset) 0.dp else 24.dp
+
+    Column(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
+        // Fixed Top App Bar (with Collapsing content)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(top = fallbackPadding)
+                .background(MaterialTheme.colorScheme.background)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBackClick) {
+                Icon(
+                    imageVector = Lucide.ArrowLeft,
+                    contentDescription = "Back",
+                    tint = MaterialTheme.colorScheme.onBackground
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            
+            Box(
+                modifier = Modifier.weight(1f),
+                contentAlignment = Alignment.CenterStart
             ) {
-                IconButton(onClick = onBackClick) {
-                    Icon(
-                        imageVector = Lucide.ArrowLeft,
-                        contentDescription = "Back",
-                        tint = MaterialTheme.colorScheme.onBackground
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
+                // 1. Default Title (Fades out)
                 Text(
                     text = if (isHindi) "अकादमिक प्रोफ़ाइल" else "Academic Profile",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.graphicsLayer {
+                        alpha = 1f - scrollFraction
+                    }
                 )
+
+                // 2. Shrink profile info (Fades in)
+                val targetProfile = profile
+                if (targetProfile != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.graphicsLayer {
+                            alpha = scrollFraction
+                            translationX = (1f - scrollFraction) * -20f
+                        }
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(if (isDark) Color(0xFF25352E) else Color(0xFFE8F8F5)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (!targetProfile.profilePictureUrl.isNullOrEmpty()) {
+                                AsyncImage(
+                                    model = targetProfile.profilePictureUrl,
+                                    contentDescription = "Profile Pic",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                val initial = targetProfile.firstName?.take(1)?.uppercase() ?: ""
+                                Text(
+                                    text = initial,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AppColors.EmeraldGreen
+                                )
+                            }
+                        }
+
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = targetProfile.fullName ?: "${targetProfile.firstName.orEmpty()} ${targetProfile.lastName.orEmpty()}".trim(),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (targetProfile.isVerified) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF2196F3)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Lucide.Check,
+                                            contentDescription = "Verified",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(8.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            Text(
+                                text = "@${targetProfile.username ?: "contributor"}",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
             }
         }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(0.5.dp)
+                .background(MaterialTheme.colorScheme.outlineVariant)
+        )
+
+        LazyColumn(
+            state = lazyListState,
+            modifier = Modifier
+                .fillMaxSize()
+                .weight(1f)
+        ) {
 
         if (isLoadingProfile) {
             item {
@@ -455,33 +572,48 @@ fun PublicProfileScreen(
                                 }
                             }
                         } else {
-                            items(caseStudies, key = { it.id }) { caseStudy ->
-                                CaseStudyCard(
-                                    caseStudy = caseStudy,
-                                    onClick = { onCaseStudyClick(caseStudy.id) },
-                                    onReactionClick = {
-                                        scope.launch {
-                                            caseStudyRepository.toggleReaction(caseStudy.id, currentUserId).onSuccess {
-                                                caseStudyRepository.getUserUploadedCaseStudies(targetUserId).onSuccess { list ->
-                                                    caseStudies = list
-                                                }
-                                            }
+                            val rows = caseStudies.chunked(2)
+                            items(rows.size) { rowIndex ->
+                                val rowItems = rows[rowIndex]
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    rowItems.forEach { caseStudy ->
+                                        Box(
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            CaseStudyGridItem(
+                                                caseStudy = caseStudy,
+                                                onClick = { onCaseStudyClick(caseStudy.id) },
+                                                onReactionClick = {
+                                                    scope.launch {
+                                                        caseStudyRepository.toggleReaction(caseStudy.id, currentUserId).onSuccess {
+                                                            caseStudyRepository.getUserUploadedCaseStudies(targetUserId).onSuccess { list ->
+                                                                caseStudies = list
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                onBookmarkClick = {
+                                                    scope.launch {
+                                                        caseStudyRepository.toggleBookmark(caseStudy.id, currentUserId).onSuccess {
+                                                            caseStudyRepository.getUserUploadedCaseStudies(targetUserId).onSuccess { list ->
+                                                                caseStudies = list
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                currentLanguage = currentLanguage
+                                            )
                                         }
-                                    },
-                                    onBookmarkClick = {
-                                        scope.launch {
-                                            caseStudyRepository.toggleBookmark(caseStudy.id, currentUserId).onSuccess {
-                                                caseStudyRepository.getUserUploadedCaseStudies(targetUserId).onSuccess { list ->
-                                                    caseStudies = list
-                                                }
-                                            }
-                                        }
-                                    },
-                                    currentLanguage = currentLanguage,
-                                    onExploreClick = { onCaseStudyClick(caseStudy.id) },
-                                    onAuthorClick = {},
-                                    modifier = Modifier.padding(horizontal = 16.dp)
-                                )
+                                    }
+                                    if (rowItems.size < 2) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                    }
+                                }
                             }
                         }
                     } else {
@@ -539,6 +671,7 @@ fun PublicProfileScreen(
             }
         }
     }
+}
 }
 
 @Composable

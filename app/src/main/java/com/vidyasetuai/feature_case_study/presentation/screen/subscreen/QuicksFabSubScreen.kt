@@ -12,6 +12,10 @@ import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -51,6 +55,11 @@ fun QuicksFabSubScreen(
     userId: String,
     repository: QuickRepository,
     checkVerification: (() -> Unit) -> Unit,
+    onQuickClick: (List<Quick>, Int) -> Unit,
+    cachedQuicksList: List<Quick>,
+    onQuicksListChange: (List<Quick>) -> Unit,
+    isQuicksLoaded: Boolean,
+    onQuicksLoadedChange: (Boolean) -> Unit,
     onBack: () -> Unit
 ) {
     BackHandler(onBack = onBack)
@@ -65,8 +74,8 @@ fun QuicksFabSubScreen(
     val subtitleColor = if (isDark) Color(0xFFA0AEC0) else Color(0xFF718096)
     val dividerColor = MaterialTheme.colorScheme.outlineVariant
 
-    var quicksList by remember { mutableStateOf<List<Quick>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    val quicksList = cachedQuicksList
+    var isLoading by remember { mutableStateOf(!isQuicksLoaded) }
     var showCreateForm by remember { mutableStateOf(false) }
 
     // Creation Form states
@@ -101,9 +110,9 @@ fun QuicksFabSubScreen(
         }
         coroutineScope.launch {
             repository.getQuicks(userId).onSuccess { list ->
-                quicksList = list
+                onQuicksListChange(list)
             }.onFailure {
-                quicksList = emptyList()
+                onQuicksListChange(emptyList())
             }
             if (showLoader) {
                 isLoading = false
@@ -112,7 +121,10 @@ fun QuicksFabSubScreen(
     }
 
     LaunchedEffect(Unit) {
-        loadQuicks(showLoader = true)
+        if (!isQuicksLoaded) {
+            loadQuicks(showLoader = true)
+            onQuicksLoadedChange(true)
+        }
     }
 
     Scaffold(
@@ -454,190 +466,32 @@ fun QuicksFabSubScreen(
                         }
                     }
                 } else {
-                    LazyColumn(
+                    val groupedQuicks = remember(quicksList) {
+                        quicksList.groupBy { it.authorUserId }.values.toList()
+                    }
+
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        items(quicksList, key = { it.id }) { quick ->
-                            LaunchedEffect(quick.id) {
-                                repository.viewQuick(quick.id, userId)
+                        gridItemsIndexed(groupedQuicks, key = { _, stack -> "fab-quick-stack-${stack.first().authorUserId}" }) { index, stack ->
+                            LaunchedEffect(stack.first().id) {
+                                repository.viewQuick(stack.first().id, userId)
                             }
-
-                            val remainingHours = try {
-                                val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
-                                val expiryDate = sdf.parse(quick.expiresAt.substring(0, 19))
-                                val diff = expiryDate.time - System.currentTimeMillis()
-                                (diff / (1000 * 60 * 60)).coerceAtLeast(0)
-                            } catch (e: Exception) {
-                                23
-                            }
-
-                            Card(
-                                shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                                modifier = Modifier.fillMaxWidth()
+                            
+                            Box(
+                                modifier = Modifier.fillMaxWidth(),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Column {
-                                    if (!quick.coverImageUrl.isNullOrBlank()) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .aspectRatio(3f / 4f)
-                                                .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-                                        ) {
-                                            AsyncImage(
-                                                model = quick.coverImageUrl,
-                                                contentDescription = "Quick cover",
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier.fillMaxSize()
-                                            )
-                                        }
-                                    }
-
-                                    Column(modifier = Modifier.padding(16.dp)) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(36.dp)
-                                                    .background(AppColors.EmeraldGreen.copy(alpha = 0.1f), CircleShape),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(
-                                                    imageVector = Lucide.User,
-                                                    contentDescription = null,
-                                                    tint = AppColors.EmeraldGreen,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            }
-                                            Spacer(modifier = Modifier.width(12.dp))
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Text(
-                                                        text = quick.authorName,
-                                                        fontSize = 14.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = textColor
-                                                    )
-                                                    if (quick.isAuthorVerified) {
-                                                        Spacer(modifier = Modifier.width(4.dp))
-                                                        Icon(
-                                                            imageVector = Lucide.Check,
-                                                            contentDescription = "Verified",
-                                                            tint = AppColors.EmeraldGreen,
-                                                            modifier = Modifier.size(14.dp)
-                                                        )
-                                                    }
-                                                }
-                                                Text(
-                                                    text = "@${quick.authorUsername}",
-                                                    fontSize = 11.sp,
-                                                    color = subtitleColor
-                                                )
-                                            }
-
-                                            Row(
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .background(if (remainingHours < 4) Color(0xFFEF4444).copy(alpha = 0.15f) else AppColors.EmeraldGreen.copy(alpha = 0.1f))
-                                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Icon(
-                                                    imageVector = Lucide.Clock,
-                                                    contentDescription = null,
-                                                    tint = if (remainingHours < 4) Color(0xFFEF4444) else AppColors.EmeraldGreen,
-                                                    modifier = Modifier.size(12.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text(
-                                                    text = if (isHindi) "${remainingHours}घंटे बचे" else "${remainingHours}h left",
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = if (remainingHours < 4) Color(0xFFEF4444) else AppColors.EmeraldGreen
-                                                )
-                                            }
-                                        }
-
-                                        Spacer(modifier = Modifier.height(12.dp))
-
-                                        Text(
-                                            text = quick.title,
-                                            fontSize = 16.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = textColor
-                                        )
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = quick.description,
-                                            fontSize = 13.sp,
-                                            color = subtitleColor,
-                                            lineHeight = 18.sp
-                                        )
-
-                                        Spacer(modifier = Modifier.height(16.dp))
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(0.5.dp)
-                                                .background(dividerColor)
-                                        )
-                                        Spacer(modifier = Modifier.height(12.dp))
-
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Icon(
-                                                    imageVector = Lucide.Eye,
-                                                    contentDescription = null,
-                                                    tint = subtitleColor,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text(
-                                                    text = "${quick.viewsCount} ${if (isHindi) "दृश्य" else "views"}",
-                                                    fontSize = 12.sp,
-                                                    color = subtitleColor
-                                                )
-                                            }
-
-                                            Row(
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .background(if (quick.isHelpful) AppColors.EmeraldGreen.copy(alpha = 0.15f) else Color.Transparent)
-                                                    .clickable {
-                                                        coroutineScope.launch {
-                                                            repository.toggleHelpful(quick.id, userId).onSuccess {
-                                                                loadQuicks(showLoader = false)
-                                                            }
-                                                        }
-                                                    }
-                                                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Icon(
-                                                    imageVector = Lucide.ThumbsUp,
-                                                    contentDescription = null,
-                                                    tint = if (quick.isHelpful) AppColors.EmeraldGreen else subtitleColor,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text(
-                                                    text = "${quick.helpfulCount} ${if (isHindi) "मददगार" else "Helpful"}",
-                                                    fontSize = 12.sp,
-                                                    fontWeight = if (quick.isHelpful) FontWeight.Bold else FontWeight.Normal,
-                                                    color = if (quick.isHelpful) AppColors.EmeraldGreen else subtitleColor
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
+                                StackedQuicksCard(
+                                    quicks = stack,
+                                    isDark = isDark,
+                                    dividerColor = dividerColor,
+                                    onClick = { onQuickClick(stack, 0) }
+                                )
                             }
                         }
                     }

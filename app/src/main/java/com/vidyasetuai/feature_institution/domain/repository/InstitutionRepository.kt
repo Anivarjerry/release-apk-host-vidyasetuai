@@ -60,13 +60,14 @@ interface InstitutionRepository {
     // Student Attendance Management
     suspend fun getOrganizations(parentOrgId: String, forceRefresh: Boolean = false): Result<List<ChildOrg>>
     suspend fun getClasses(orgId: String, forceRefresh: Boolean = false): Result<List<OrgClass>>
-    suspend fun getSections(classId: String, forceRefresh: Boolean = false): Result<List<OrgSection>>
+    suspend fun getSections(orgId: String, classId: String, forceRefresh: Boolean = false): Result<List<OrgSection>>
     suspend fun getStudentsForAttendance(orgId: String, classId: String, sectionId: String, date: String): Result<List<StudentAttendanceInfo>>
     suspend fun submitStudentAttendance(orgId: String, date: String, attendanceList: List<StudentAttendanceInfo>, staffUserId: String, parentOrgId: String): Result<Unit>
     suspend fun getClassTeacherAssignment(userId: String, parentOrgId: String): Result<AssignedSection?>
     suspend fun getStaffSalaryDetails(userId: String, parentOrgId: String, forceRefresh: Boolean = false): Result<StaffSalaryDetails>
     suspend fun getActiveSessionDetails(forceRefresh: Boolean = false): Result<Pair<String, String>>
     suspend fun checkIfAttendanceMarked(orgId: String, classId: String, sectionId: String, date: String): Result<Boolean>
+    suspend fun syncStudentAttendanceOffline(): Result<Unit>
     suspend fun getContentFeed(workspace: Workspace, sessionId: String, forceRefresh: Boolean = false): Result<List<ContentFeedItem>>
 
     // --- Offline Sync & Search Support ---

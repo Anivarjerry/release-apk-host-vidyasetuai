@@ -157,6 +157,9 @@ interface InstitutionDao {
     @Query("UPDATE local_student_attendance SET sync_state = 'SYNCED' WHERE id = :id")
     suspend fun markStudentAttendanceSynced(id: String)
     
+    @Query("DELETE FROM local_student_attendance WHERE student_id IN (:studentIds) AND attendance_date = :date")
+    suspend fun deleteStudentAttendanceForStudents(studentIds: List<String>, date: String)
+    
     @Query("DELETE FROM local_student_attendance")
     suspend fun clearStudentAttendance()
 

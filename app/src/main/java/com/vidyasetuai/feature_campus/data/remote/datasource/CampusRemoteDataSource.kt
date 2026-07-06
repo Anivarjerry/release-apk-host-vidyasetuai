@@ -224,18 +224,6 @@ class CampusRemoteDataSource {
             channel.status.collect { status ->
                 lastPresenceStatus.value = status.name
                 addLog("Presence channel status event: ${status.name}")
-                if (status.name == "SUBSCRIBED") {
-                    try {
-                        lastPresenceError.value = null
-                        addLog("Channel subscribed. Performing channel.track(userId: $userId)...")
-                        channel.track(PresenceUser(userId))
-                        addLog("channel.track() successfully registered for $userId")
-                    } catch (e: Exception) {
-                        lastPresenceError.value = "Track failed: ${e.message}"
-                        addLog("Track call exception: ${e.message}")
-                        android.util.Log.e("CampusRemoteDS", "Presence tracking failed", e)
-                    }
-                }
             }
         }
 
@@ -244,9 +232,11 @@ class CampusRemoteDataSource {
                 lastPresenceError.value = null
                 addLog("Invoking channel.subscribe() for presence...")
                 channel.subscribe()
-                addLog("channel.subscribe() completed for presence")
+                addLog("channel.subscribe() completed for presence. Tracking user...")
+                channel.track(PresenceUser(userId))
+                addLog("channel.track() successfully registered for $userId")
             } catch (e: Exception) {
-                lastPresenceError.value = "Sub failed: ${e.message}"
+                lastPresenceError.value = "Sub/Track failed: ${e.message}"
                 addLog("Presence subscription call error: ${e.message}")
                 android.util.Log.e("CampusRemoteDS", "Presence channel subscription failed", e)
             }
@@ -262,6 +252,117 @@ class CampusRemoteDataSource {
                     addLog("Successfully removed and unsubscribed presence channel")
                 } catch (e: Exception) {
                     addLog("Presence remove channel failed: ${e.message}")
+                }
+            }
+        }
+    }
+
+    suspend fun getOrCreatePrivateRoom(userA: String, userB: String): com.vidyasetuai.feature_campus.domain.model.PrivateRoomDto {
+        val user1 = if (userA < userB) userA else userB
+        val user2 = if (userA < userB) userB else userA
+        
+        val existing = SupabaseClient.client.from("private_chat_rooms")
+            .select(columns = Columns.raw("*")) {
+                filter {
+                    eq("user1_id", user1)
+                    eq("user2_id", user2)
+                }
+            }.decodeList<com.vidyasetuai.feature_campus.domain.model.PrivateRoomDto>()
+            
+        if (existing.isNotEmpty()) {
+            return existing.first()
+        }
+        
+        return SupabaseClient.client.from("private_chat_rooms").insert(
+            mapOf(
+                "user1_id" to user1,
+                "user2_id" to user2
+            )
+        ) {
+            select()
+        }.decodeSingle()
+    }
+
+    suspend fun getPrivateMessages(roomId: String): List<com.vidyasetuai.feature_campus.domain.model.PrivateMessageDto> {
+        val list = SupabaseClient.client.from("private_messages")
+            .select(columns = Columns.raw("*")) {
+                filter {
+                    eq("room_id", roomId)
+                }
+                order("created_at", order = io.github.jan.supabase.postgrest.query.Order.ASCENDING)
+            }.decodeList<com.vidyasetuai.feature_campus.domain.model.PrivateMessageDto>()
+            
+        val cutoff = java.time.Instant.now().minus(24, java.time.temporal.ChronoUnit.HOURS)
+        return list.filter { msg ->
+            msg.isSaved || try {
+                java.time.Instant.parse(msg.createdAt).isAfter(cutoff)
+            } catch (e: Exception) {
+                true
+            }
+        }
+    }
+
+    suspend fun sendPrivateMessage(roomId: String, senderId: String, text: String?, mediaUrl: String?): com.vidyasetuai.feature_campus.domain.model.PrivateMessageDto {
+        val data = buildMap {
+            put("room_id", roomId)
+            put("sender_id", senderId)
+            if (text != null) put("message_text", text)
+            if (mediaUrl != null) put("media_url", mediaUrl)
+        }
+        
+        return SupabaseClient.client.from("private_messages").insert(data) {
+            select()
+        }.decodeSingle()
+    }
+
+    suspend fun toggleSavePrivateMessage(messageId: String, isSaved: Boolean): com.vidyasetuai.feature_campus.domain.model.PrivateMessageDto {
+        return SupabaseClient.client.from("private_messages").update(
+            mapOf("is_saved" to isSaved)
+        ) {
+            filter {
+                eq("id", messageId)
+            }
+            select()
+        }.decodeSingle()
+    }
+
+    fun subscribeToPrivateMessages(roomId: String): Flow<com.vidyasetuai.feature_campus.domain.model.PrivateMessageDto> = callbackFlow {
+        val channel = SupabaseClient.client.realtime.channel("private_room_$roomId")
+        val job = launch {
+            channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+                table = "private_messages"
+            }.collect { action ->
+                if (action is PostgresAction.Insert) {
+                    try {
+                        val recordJson = action.record.toString()
+                        val dto = Json.decodeFromString<com.vidyasetuai.feature_campus.domain.model.PrivateMessageDto>(recordJson)
+                        if (dto.roomId == roomId) {
+                            trySend(dto)
+                        }
+                    } catch (e: Exception) {
+                        // Ignore
+                    }
+                } else if (action is PostgresAction.Update) {
+                    try {
+                        val recordJson = action.record.toString()
+                        val dto = Json.decodeFromString<com.vidyasetuai.feature_campus.domain.model.PrivateMessageDto>(recordJson)
+                        if (dto.roomId == roomId) {
+                            trySend(dto)
+                        }
+                    } catch (e: Exception) {
+                        // Ignore
+                    }
+                }
+            }
+        }
+        channel.subscribe()
+        awaitClose {
+            job.cancel()
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                try {
+                    SupabaseClient.client.realtime.removeChannel(channel)
+                } catch (e: Exception) {
+                    // Ignore
                 }
             }
         }

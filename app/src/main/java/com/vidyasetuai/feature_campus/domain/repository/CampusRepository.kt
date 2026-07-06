@@ -16,4 +16,12 @@ interface CampusRepository {
     fun observeRealtimeMessages(roomId: String): Flow<CampusMessage>
     fun observePresenceCount(roomId: String, userId: String): Flow<Int>
     suspend fun isContentAppropriate(content: String): Boolean
+    
+    // Private Campus Operations
+    suspend fun getMutualInspirations(userId: String): Result<List<com.vidyasetuai.feature_profile.domain.model.UserProfile>>
+    suspend fun getOrCreatePrivateRoom(userA: String, userB: String): Result<com.vidyasetuai.feature_campus.domain.model.PrivateRoom>
+    suspend fun getPrivateMessages(roomId: String): Result<List<com.vidyasetuai.feature_campus.domain.model.PrivateMessage>>
+    suspend fun sendPrivateMessage(roomId: String, senderId: String, text: String?, mediaUrl: String?): Result<com.vidyasetuai.feature_campus.domain.model.PrivateMessage>
+    suspend fun toggleSavePrivateMessage(messageId: String, isSaved: Boolean): Result<com.vidyasetuai.feature_campus.domain.model.PrivateMessage>
+    fun observePrivateMessages(roomId: String): Flow<com.vidyasetuai.feature_campus.domain.model.PrivateMessage>
 }

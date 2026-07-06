@@ -147,7 +147,10 @@ class InstitutionViewModel(
                     studentsForAttendance = emptyList(),
                     attendanceSubmittedSuccess = false
                 )
-                loadSections(event.classId)
+                val orgId = _uiState.value.selectedChildOrg
+                if (!orgId.isNullOrEmpty()) {
+                    loadSections(orgId, event.classId)
+                }
             }
             is InstitutionEvent.SelectSection -> {
                 _uiState.value = _uiState.value.copy(
@@ -873,10 +876,10 @@ class InstitutionViewModel(
         }
     }
 
-    private fun loadSections(classId: String) {
+    private fun loadSections(orgId: String, classId: String) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true)
-            repository.getSections(classId).fold(
+            repository.getSections(orgId, classId).fold(
                 onSuccess = { list ->
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
@@ -929,6 +932,7 @@ class InstitutionViewModel(
                         isAttendanceAlreadyMarked = true,
                         isAttendanceEditEnabled = false
                     )
+                    refreshUnsyncedCounts()
                 },
                 onFailure = { e ->
                     _uiState.value = _uiState.value.copy(
@@ -955,7 +959,7 @@ class InstitutionViewModel(
                             selectedSection = assignment.sectionId
                         )
                         loadClasses(assignment.orgId)
-                        loadSections(assignment.classId)
+                        loadSections(assignment.orgId, assignment.classId)
                         
                         if (autoLoadIfMarked) {
                             val isMarked = repository.checkIfAttendanceMarked(
@@ -1541,7 +1545,9 @@ class InstitutionViewModel(
             val dao = db.institutionDao()
             val leavesCount = try { dao.getUnsyncedLeaves().size } catch (e: Exception) { 0 }
             val remarksCount = try { dao.getUnsyncedRemarks().size } catch (e: Exception) { 0 }
-            val attendanceCount = try { dao.getUnsyncedBusTripAttendanceLogs().size } catch (e: Exception) { 0 }
+            val tripAttendanceCount = try { dao.getUnsyncedBusTripAttendanceLogs().size } catch (e: Exception) { 0 }
+            val classAttendanceCount = try { dao.getUnsyncedStudentAttendance().size } catch (e: Exception) { 0 }
+            val attendanceCount = tripAttendanceCount + classAttendanceCount
             val total = leavesCount + remarksCount + attendanceCount
             
             _uiState.value = _uiState.value.copy(
@@ -1569,9 +1575,14 @@ class InstitutionViewModel(
                 android.util.Log.e("SyncCenter", "syncAllPending: Remarks sync failed", e)
             }
             
-            // Sync attendance
+            // Sync bus trip attendance
             repository.syncOfflineAttendanceLogs().onFailure { e ->
-                android.util.Log.e("SyncCenter", "syncAllPending: Attendance sync failed", e)
+                android.util.Log.e("SyncCenter", "syncAllPending: Bus attendance sync failed", e)
+            }
+
+            // Sync student class attendance
+            repository.syncStudentAttendanceOffline().onFailure { e ->
+                android.util.Log.e("SyncCenter", "syncAllPending: Class attendance sync failed", e)
             }
             
             // Reload from server

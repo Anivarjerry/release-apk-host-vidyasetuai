@@ -25,7 +25,8 @@ class CampusViewModel(
     private val getMessagesUseCase: GetMessagesUseCase,
     private val sendMessageUseCase: SendMessageUseCase,
     private val reportMessageUseCase: ReportMessageUseCase,
-    private val loadModerationSettingsUseCase: LoadModerationSettingsUseCase
+    private val loadModerationSettingsUseCase: LoadModerationSettingsUseCase,
+    private val campusRepo: com.vidyasetuai.feature_campus.domain.repository.CampusRepository
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(CampusUiState())
@@ -35,6 +36,7 @@ class CampusViewModel(
     private var realtimeJob: Job? = null
     private var presenceJob: Job? = null
     private var cooldownJob: Job? = null
+    private var privateRealtimeJob: Job? = null
 
     init {
         onEvent(CampusEvent.LoadRooms)
@@ -170,6 +172,114 @@ class CampusViewModel(
             is CampusEvent.DismissError -> {
                 _state.value = _state.value.copy(errorMessage = null)
             }
+            is CampusEvent.ToggleTab -> {
+                _state.value = _state.value.copy(activeTab = event.tab)
+            }
+            is CampusEvent.LoadMutualInspirations -> {
+                _state.value = _state.value.copy(isLoadingMutual = true)
+                viewModelScope.launch {
+                    campusRepo.getMutualInspirations(event.userId).fold(
+                        onSuccess = { list ->
+                            _state.value = _state.value.copy(
+                                mutualInspirations = list,
+                                isLoadingMutual = false
+                            )
+                        },
+                        onFailure = { error ->
+                            _state.value = _state.value.copy(
+                                errorMessage = error.message,
+                                isLoadingMutual = false
+                            )
+                        }
+                    )
+                }
+            }
+            is CampusEvent.OpenPrivateChat -> {
+                _state.value = _state.value.copy(
+                    activePrivateUser = event.otherUser,
+                    isLoadingMessages = true,
+                    privateMessages = emptyList()
+                )
+                viewModelScope.launch {
+                    campusRepo.getOrCreatePrivateRoom(event.activeUserId, event.otherUser.userId).fold(
+                        onSuccess = { room ->
+                            _state.value = _state.value.copy(activePrivateRoomId = room.id)
+                            campusRepo.getPrivateMessages(room.id).fold(
+                                onSuccess = { msgList ->
+                                    _state.value = _state.value.copy(
+                                        privateMessages = msgList,
+                                        isLoadingMessages = false
+                                    )
+                                },
+                                onFailure = { error ->
+                                    _state.value = _state.value.copy(
+                                        errorMessage = error.message,
+                                        isLoadingMessages = false
+                                    )
+                                }
+                            )
+                            privateRealtimeJob?.cancel()
+                            privateRealtimeJob = viewModelScope.launch {
+                                campusRepo.observePrivateMessages(room.id).collect { newMsg ->
+                                    val currentList = _state.value.privateMessages.toMutableList()
+                                    val idx = currentList.indexOfFirst { it.id == newMsg.id }
+                                    if (idx != -1) {
+                                        currentList[idx] = newMsg
+                                    } else {
+                                        currentList.add(newMsg)
+                                    }
+                                    _state.value = _state.value.copy(privateMessages = currentList)
+                                }
+                            }
+                        },
+                        onFailure = { error ->
+                            _state.value = _state.value.copy(
+                                errorMessage = error.message,
+                                isLoadingMessages = false
+                            )
+                        }
+                    )
+                }
+            }
+            is CampusEvent.SendPrivateMessage -> {
+                val roomId = _state.value.activePrivateRoomId ?: return@onEvent
+                viewModelScope.launch {
+                    campusRepo.sendPrivateMessage(roomId, event.activeUserId, event.text, event.mediaUrl).fold(
+                        onSuccess = {},
+                        onFailure = { error ->
+                            _state.value = _state.value.copy(errorMessage = error.message)
+                        }
+                    )
+                }
+            }
+            is CampusEvent.ToggleSavePrivateMessage -> {
+                viewModelScope.launch {
+                    campusRepo.toggleSavePrivateMessage(event.messageId, event.isSaved).fold(
+                        onSuccess = { updatedMsg ->
+                            val currentList = _state.value.privateMessages.toMutableList()
+                            val idx = currentList.indexOfFirst { it.id == updatedMsg.id }
+                            if (idx != -1) {
+                                currentList[idx] = updatedMsg
+                                _state.value = _state.value.copy(privateMessages = currentList)
+                            }
+                        },
+                        onFailure = { error ->
+                            _state.value = _state.value.copy(errorMessage = error.message)
+                        }
+                    )
+                }
+            }
+            is CampusEvent.ClosePrivateChat -> {
+                privateRealtimeJob?.cancel()
+                _state.value = _state.value.copy(
+                    activePrivateUser = null,
+                    activePrivateRoomId = null,
+                    privateMessages = emptyList()
+                )
+            }
+            is CampusEvent.SetUploadingPrivateMedia -> {
+                _state.value = _state.value.copy(isUploadingPrivateMedia = event.isUploading)
+            }
         }
     }
 
@@ -209,5 +319,6 @@ class CampusViewModel(
         realtimeJob?.cancel()
         presenceJob?.cancel()
         cooldownJob?.cancel()
+        privateRealtimeJob?.cancel()
     }
 }

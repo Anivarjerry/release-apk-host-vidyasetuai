@@ -17,10 +17,11 @@ class InstitutionSyncWorker(
 
         return try {
             val attendanceResult = repository.syncOfflineAttendanceLogs()
+            val classAttendanceResult = repository.syncStudentAttendanceOffline()
             val remarksResult = repository.syncRemarksOffline()
             val leavesResult = repository.syncLeavesOffline()
             
-            if (attendanceResult.isSuccess && remarksResult.isSuccess && leavesResult.isSuccess) {
+            if (attendanceResult.isSuccess && classAttendanceResult.isSuccess && remarksResult.isSuccess && leavesResult.isSuccess) {
                 Result.success()
             } else {
                 Result.retry()

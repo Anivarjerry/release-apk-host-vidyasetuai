@@ -16,8 +16,7 @@ object PermissionManager {
      */
     fun checkAllPermissions(context: Context): Boolean {
         return isNotificationPermissionGranted(context) &&
-                isCameraPermissionGranted(context) &&
-                isBatteryOptimizationExemptionGranted(context)
+                isCameraPermissionGranted(context)
     }
 
     fun isNotificationPermissionGranted(context: Context): Boolean {

@@ -937,9 +937,7 @@ class InstitutionRepositoryImpl(
         }
     }
     
-    override suspend fun getSections(classId: String, forceRefresh: Boolean): Result<List<OrgSection>> = runCatching {
-        val activeWorkspace = dao.getActiveWorkspace() ?: return@runCatching emptyList()
-        val orgId = activeWorkspace.childOrganizationId ?: return@runCatching emptyList()
+    override suspend fun getSections(orgId: String, classId: String, forceRefresh: Boolean): Result<List<OrgSection>> = runCatching {
         val setup = dao.getChildOrgSetup(orgId) ?: return@runCatching emptyList()
         val jsonArray = Json.parseToJsonElement(setup.classStructureJson).jsonArray
         val classObj = jsonArray.firstOrNull { it.jsonObject["class_id"]?.jsonPrimitive?.content == classId }?.jsonObject
@@ -954,9 +952,32 @@ class InstitutionRepositoryImpl(
     }
     
     override suspend fun getStudentsForAttendance(orgId: String, classId: String, sectionId: String, date: String): Result<List<StudentAttendanceInfo>> = runCatching {
-        val students = dao.getStudents(orgId).filter { 
-            it.classId == classId && it.sectionId == sectionId 
+        val allStudents = dao.getStudents(orgId)
+        android.util.Log.d("AttendanceDebug", "getStudentsForAttendance: orgId=$orgId, classId=$classId, sectionId=$sectionId")
+        android.util.Log.d("AttendanceDebug", "Total students in local DB for this org: ${allStudents.size}")
+        
+        val setup = dao.getChildOrgSetup(orgId)
+        val selectedClassName = setup?.let {
+            try {
+                val jsonArray = Json.parseToJsonElement(it.classStructureJson).jsonArray
+                val classObj = jsonArray.firstOrNull { it.jsonObject["class_id"]?.jsonPrimitive?.content == classId }?.jsonObject
+                classObj?.get("class_name")?.jsonPrimitive?.content
+            } catch (e: Exception) {
+                null
+            }
         }
+        android.util.Log.d("AttendanceDebug", "Resolved selected class display name: $selectedClassName")
+
+        allStudents.forEach { 
+            android.util.Log.d("AttendanceDebug", "DB Student: name=${it.name}, classId=${it.classId}, className=${it.className}, sectionId=${it.sectionId}")
+        }
+        
+        val students = allStudents.filter { student ->
+            (student.classId == classId || (selectedClassName != null && student.className?.equals(selectedClassName, ignoreCase = true) == true)) && 
+            student.sectionId == sectionId 
+        }
+        android.util.Log.d("AttendanceDebug", "Filtered students matching selection: ${students.size}")
+        
         val attendanceMap = dao.getStudentAttendanceForClass(orgId, classId, sectionId, date)
             .associateBy { it.studentId }
         students.map { student ->
@@ -981,21 +1002,22 @@ class InstitutionRepositoryImpl(
         val sessionId = activeWorkspace?.parentOrgActiveSessionId ?: ""
         val staffName = activeWorkspace?.roleDisplayName ?: ""
         val entities = attendanceList.map { info ->
+            val localStudent = dao.getStudentById(info.studentId)
             LocalStudentAttendanceEntity(
                 id = java.util.UUID.randomUUID().toString(),
                 organizationId = orgId,
                 activeSessionId = sessionId,
                 studentId = info.studentId,
                 studentName = info.name,
-                rollNumber = null,
-                classId = null,
-                className = null,
-                sectionId = null,
-                sectionName = null,
+                rollNumber = localStudent?.rollNumber,
+                classId = localStudent?.classId,
+                className = localStudent?.className,
+                sectionId = localStudent?.sectionId,
+                sectionName = localStudent?.sectionName,
                 attendanceDate = date,
                 status = info.status,
                 remarks = null,
-                markedByStaffId = staffUserId,
+                markedByStaffId = activeWorkspace?.staffId ?: staffUserId,
                 markedByStaffName = staffName,
                 isActive = true,
                 isDeleted = false,
@@ -1003,6 +1025,11 @@ class InstitutionRepositoryImpl(
                 syncState = "PENDING_INSERT"
             )
         }
+        
+        // Delete local records for these students on this date first to prevent unique constraint crashes
+        val studentIds = entities.map { it.studentId }
+        dao.deleteStudentAttendanceForStudents(studentIds, date)
+        
         dao.insertStudentAttendance(entities)
         
         // Immediate sync upload
@@ -1021,8 +1048,12 @@ class InstitutionRepositoryImpl(
             )
         }
         runCatching {
+            android.util.Log.d("AttendanceSync", "Immediate sync upload starting: upserting ${dtos.size} records to Supabase")
             remoteDataSource.upsertStudentAttendance(dtos)
+            android.util.Log.d("AttendanceSync", "Immediate sync upload success: marking ${entities.size} records as SYNCED locally")
             entities.forEach { dao.markStudentAttendanceSynced(it.id) }
+        }.onFailure { err ->
+            android.util.Log.e("AttendanceSync", "Immediate sync upload failed: error=${err.message}", err)
         }
     }
     
@@ -1124,7 +1155,111 @@ class InstitutionRepositoryImpl(
     }
     
     override suspend fun checkIfAttendanceMarked(orgId: String, classId: String, sectionId: String, date: String): Result<Boolean> = runCatching {
-        dao.checkIfAttendanceMarked(orgId, classId, sectionId, date)
+        try {
+            val setup = dao.getChildOrgSetup(orgId)
+            val selectedClassName = setup?.let {
+                try {
+                    val jsonArray = Json.parseToJsonElement(it.classStructureJson).jsonArray
+                    val classObj = jsonArray.firstOrNull { it.jsonObject["class_id"]?.jsonPrimitive?.content == classId }?.jsonObject
+                    classObj?.get("class_name")?.jsonPrimitive?.content
+                } catch (e: Exception) {
+                    null
+                }
+            }
+
+            val studentIds = dao.getStudents(orgId).filter { student ->
+                (student.classId == classId || (selectedClassName != null && student.className?.equals(selectedClassName, ignoreCase = true) == true)) && 
+                student.sectionId == sectionId 
+            }.map { it.id }
+
+            if (studentIds.isEmpty()) {
+                return@runCatching dao.checkIfAttendanceMarked(orgId, classId, sectionId, date)
+            }
+
+            // Query Supabase organization_student_attendance
+            val remoteRecords = SupabaseClient.client.from("organization_student_attendance")
+                .select(columns = Columns.raw("id, organization_id, active_session_id, student_id, attendance_date, status, remarks, marked_by_staff_id, is_active, is_deleted")) {
+                    filter {
+                        eq("attendance_date", date)
+                        isIn("student_id", studentIds)
+                    }
+                }.decodeList<StudentAttendanceDto>()
+
+            if (remoteRecords.isNotEmpty()) {
+                val activeWorkspace = dao.getActiveWorkspace()
+                val sessionId = activeWorkspace?.parentOrgActiveSessionId ?: ""
+                val staffName = activeWorkspace?.roleDisplayName ?: ""
+                val staffId = activeWorkspace?.staffId ?: ""
+                val studentsMap = dao.getStudents(orgId).associateBy { it.id }
+
+                val entities = remoteRecords.map { dto ->
+                    val student = studentsMap[dto.student_id]
+                    LocalStudentAttendanceEntity(
+                        id = dto.id,
+                        organizationId = dto.organization_id ?: orgId,
+                        activeSessionId = dto.active_session_id ?: sessionId,
+                        studentId = dto.student_id,
+                        studentName = student?.name,
+                        rollNumber = student?.rollNumber,
+                        classId = classId,
+                        className = student?.className,
+                        sectionId = sectionId,
+                        sectionName = student?.sectionName,
+                        attendanceDate = date,
+                        status = dto.status,
+                        remarks = dto.remarks,
+                        markedByStaffId = dto.marked_by_staff_id ?: staffId,
+                        markedByStaffName = staffName,
+                        isActive = dto.is_active ?: true,
+                        isDeleted = dto.is_deleted ?: false,
+                        lastSyncedAt = System.currentTimeMillis(),
+                        syncState = "SYNCED"
+                    )
+                }
+
+                // Delete local records for these students on this date first to prevent unique constraint crashes
+                dao.deleteStudentAttendanceForStudents(studentIds, date)
+                dao.insertStudentAttendance(entities)
+                return@runCatching true
+            } else {
+                return@runCatching false
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Attendance", "Failed to check Supabase student attendance, falling back to local check", e)
+            return@runCatching dao.checkIfAttendanceMarked(orgId, classId, sectionId, date)
+        }
+    }
+
+    override suspend fun syncStudentAttendanceOffline(): Result<Unit> = runCatching {
+        val unsynced = dao.getUnsyncedStudentAttendance()
+        if (unsynced.isNotEmpty()) {
+            val activeWorkspace = dao.getActiveWorkspace()
+            val staffIdToUse = activeWorkspace?.staffId
+
+            val dtos = unsynced.map { item ->
+                val resolvedStaffId = if (staffIdToUse != null && item.markedByStaffId != staffIdToUse) {
+                    staffIdToUse
+                } else {
+                    item.markedByStaffId
+                }
+                StudentAttendanceDto(
+                    id = item.id,
+                    organization_id = item.organizationId,
+                    active_session_id = item.activeSessionId,
+                    student_id = item.studentId,
+                    attendance_date = item.attendanceDate,
+                    status = item.status,
+                    remarks = item.remarks,
+                    marked_by_staff_id = resolvedStaffId,
+                    is_active = item.isActive,
+                    is_deleted = item.isDeleted
+                )
+            }
+            android.util.Log.d("AttendanceSync", "Syncing ${dtos.size} offline class attendance records to Supabase")
+            remoteDataSource.upsertStudentAttendance(dtos)
+            android.util.Log.d("AttendanceSync", "Offline class attendance sync success: marking synced")
+            unsynced.forEach { dao.markStudentAttendanceSynced(it.id) }
+        }
     }
     
     override suspend fun getContentFeed(workspace: Workspace, sessionId: String, forceRefresh: Boolean): Result<List<ContentFeedItem>> = Result.success(emptyList())

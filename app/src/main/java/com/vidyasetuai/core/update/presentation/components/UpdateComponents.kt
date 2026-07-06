@@ -213,6 +213,22 @@ fun UpdateScreen(
                 ) {
                     Text(text = stringResource(id = R.string.install_update))
                 }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedButton(
+                    onClick = {
+                        if (destinationFile.exists()) {
+                            destinationFile.delete()
+                        }
+                        WorkManager.getInstance(context).cancelUniqueWork("apk_download")
+                        triggerDownload(context, info.apkUrl, destinationFile.absolutePath)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text(text = if (currentLang == "hi") "पुनः डाउनलोड करें (Re-download)" else "Re-download & Try Again")
+                }
             } else if (activeWorkInfo?.state == WorkInfo.State.FAILED) {
                 val errorMsg = progressData?.getString("error_message") ?: "Unknown network failure"
                 Text(
@@ -443,6 +459,22 @@ fun OptionalUpdateDialog(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(text = stringResource(id = R.string.install_update))
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedButton(
+                        onClick = {
+                            if (destinationFile.exists()) {
+                                destinationFile.delete()
+                            }
+                            WorkManager.getInstance(context).cancelUniqueWork("apk_download")
+                            triggerDownload(context, info.apkUrl, destinationFile.absolutePath)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text(text = if (currentLang == "hi") "पुनः डाउनलोड करें (Re-download)" else "Re-download & Try Again")
                     }
                 } else if (activeWorkInfo?.state == WorkInfo.State.FAILED) {
                     Text(

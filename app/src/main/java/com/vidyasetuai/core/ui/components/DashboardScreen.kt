@@ -37,6 +37,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -87,6 +88,7 @@ import com.vidyasetuai.feature_feed.presentation.viewmodel.ExperienceViewModel
 import com.vidyasetuai.feature_feed.presentation.event.ExperienceEvent
 import com.vidyasetuai.feature_campus.presentation.screen.CampusScreen
 import com.vidyasetuai.feature_campus.presentation.screen.ChatRoomScreen
+import com.vidyasetuai.feature_campus.presentation.screen.PrivateChatRoomScreen
 import com.vidyasetuai.feature_feed.presentation.screen.InstitutionEvent
 import com.vidyasetuai.feature_journey.presentation.screen.JourneyScreen
 import com.vidyasetuai.feature_feed.presentation.screen.NotificationEvent
@@ -109,6 +111,7 @@ import com.vidyasetuai.feature_institution.data.repository.InstitutionRepository
 import com.vidyasetuai.feature_institution.presentation.viewmodel.InstitutionViewModel
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableStateListOf
 import com.vidyasetuai.feature_institution.presentation.component.DashboardFloatingActionButton
 import com.vidyasetuai.feature_institution.util.DashboardFabRules
 import com.vidyasetuai.feature_case_study.presentation.screen.subscreen.AddCaseStudyFabSubScreen
@@ -172,9 +175,8 @@ fun DashboardScreen(
 
     fun navigateBack() {
         if (navigationStack.size > 1) {
-            val prevStack = navigationStack.dropLast(1)
-            val prevState = prevStack.last()
-            navigationStack = prevStack
+            val prevState = navigationStack.last()
+            navigationStack = navigationStack.dropLast(1)
             
             activeTab = prevState.tab
             selectedCaseStudyId = prevState.selectedCaseStudyId
@@ -290,7 +292,7 @@ fun DashboardScreen(
         val loadModerationSettings = com.vidyasetuai.feature_campus.domain.usecase.LoadModerationSettingsUseCase(campusRepo)
         
         com.vidyasetuai.feature_campus.presentation.viewmodel.CampusViewModel(
-            getRooms, getMessages, sendMessage, reportMessage, loadModerationSettings
+            getRooms, getMessages, sendMessage, reportMessage, loadModerationSettings, campusRepo
         )
     }
 
@@ -309,6 +311,16 @@ fun DashboardScreen(
 
     var showUploadCaseStudyDialog by remember { mutableStateOf(false) }
     var showUploadExperienceDialog by remember { mutableStateOf(false) }
+
+    val cachedQuicksList = remember { mutableStateOf<List<com.vidyasetuai.feature_case_study.domain.model.Quick>>(emptyList()) }
+    val cachedFullFeedList = remember { mutableStateListOf<com.vidyasetuai.feature_case_study.presentation.screen.desbord.FeedItem>() }
+    var isFeedLoaded by remember { mutableStateOf(false) }
+    var quickViewerList by remember { mutableStateOf<List<com.vidyasetuai.feature_case_study.domain.model.Quick>>(emptyList()) }
+    var quickViewerSelectedIndex by remember { mutableStateOf(0) }
+    
+    val cachedFabQuicksList = remember { mutableStateOf<List<com.vidyasetuai.feature_case_study.domain.model.Quick>>(emptyList()) }
+    var isFabQuicksLoaded by remember { mutableStateOf(false) }
+    var homeTabClickCount by remember { mutableStateOf(0) }
 
     val profileRemoteDS = remember { com.vidyasetuai.feature_profile.data.remote.datasource.ProfileRemoteDataSource() }
     var checkingVerification by remember { mutableStateOf(false) }
@@ -424,7 +436,16 @@ fun DashboardScreen(
         }
     }
 
-    if (activeTab == "case_study_detail") {
+    if (activeTab == "quick_viewer") {
+        com.vidyasetuai.feature_case_study.presentation.screen.subscreen.QuickViewerScreen(
+            quicks = quickViewerList,
+            initialIndex = quickViewerSelectedIndex,
+            currentLanguage = currentLanguage,
+            userId = userId,
+            repository = quickRepo,
+            onBack = { navigateBack() }
+        )
+    } else if (activeTab == "case_study_detail") {
         com.vidyasetuai.feature_case_study.presentation.screen.CaseStudyDetailScreen(
             caseStudyId = selectedCaseStudyId ?: "",
             userId = userId,
@@ -443,6 +464,17 @@ fun DashboardScreen(
             onUserClick = { clickedUserId ->
                 selectedPublicProfileUserId = clickedUserId
                 navigateTo("public_profile")
+            }
+        )
+    } else if (activeTab == "private_chat_room") {
+        PrivateChatRoomScreen(
+            viewModel = campusViewModel,
+            userId = userId,
+            currentLanguage = currentLanguage,
+            currentTheme = currentTheme,
+            onBack = {
+                campusViewModel.onEvent(com.vidyasetuai.feature_campus.presentation.event.CampusEvent.ClosePrivateChat)
+                navigateBack()
             }
         )
     } else if (activeTab == "settings") {
@@ -477,8 +509,17 @@ fun DashboardScreen(
             currentLanguage = currentLanguage,
             onBackClick = { navigateBack() },
             onUserClick = { clickedUserId ->
-                selectedPublicProfileUserId = clickedUserId
-                navigateTo("public_profile")
+                if (navigationStack.isNotEmpty() && navigationStack.last().tab == "public_profile") {
+                    val prevState = navigationStack.last()
+                    navigationStack = navigationStack.dropLast(1)
+                    activeTab = "public_profile"
+                    selectedPublicProfileUserId = clickedUserId
+                    selectedCaseStudyId = null
+                    inspirationsListUserId = null
+                } else {
+                    selectedPublicProfileUserId = clickedUserId
+                    navigateTo("public_profile")
+                }
             }
         )
     } else if (activeTab == "campus" || activeTab == "notifications") {
@@ -542,6 +583,9 @@ fun DashboardScreen(
                         onRoomClick = { room ->
                             campusViewModel.onEvent(com.vidyasetuai.feature_campus.presentation.event.CampusEvent.OpenRoom(room, userId))
                             navigateTo("chat_room")
+                        },
+                        onPrivateChatClick = { otherUser ->
+                            navigateTo("private_chat_room")
                         }
                     )
                 } else {
@@ -656,7 +700,13 @@ fun DashboardScreen(
                         Column(
                             modifier = Modifier
                                 .weight(1f)
-                                .clickable { selectTab("home") },
+                                .clickable {
+                                    if (isHome) {
+                                        homeTabClickCount++
+                                    } else {
+                                        selectTab("home")
+                                    }
+                                },
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center
                         ) {
@@ -817,6 +867,15 @@ fun DashboardScreen(
                                     userId = userId,
                                     repository = quickRepo,
                                     checkVerification = { onVerified -> checkVerificationAndRun { onVerified() } },
+                                    onQuickClick = { list, index ->
+                                         quickViewerList = list
+                                         quickViewerSelectedIndex = index
+                                         navigateTo("quick_viewer")
+                                     },
+                                    cachedQuicksList = cachedFabQuicksList.value,
+                                    onQuicksListChange = { cachedFabQuicksList.value = it },
+                                    isQuicksLoaded = isFabQuicksLoaded,
+                                    onQuicksLoadedChange = { isFabQuicksLoaded = it },
                                     onBack = { institutionViewModel.onEvent(com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(null)) }
                                 )
                             }
@@ -841,6 +900,17 @@ fun DashboardScreen(
                                         institutionViewModel.onEvent(com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(route))
                                     }
                                 },
+                                cachedQuicksList = cachedQuicksList.value,
+                                onQuicksListChange = { cachedQuicksList.value = it },
+                                cachedFullFeedList = cachedFullFeedList,
+                                isFeedLoaded = isFeedLoaded,
+                                onFeedLoadedChange = { isFeedLoaded = it },
+                                onQuickClick = { list, index ->
+                                    quickViewerList = list
+                                    quickViewerSelectedIndex = index
+                                    navigateTo("quick_viewer")
+                                },
+                                homeTabClickCount = homeTabClickCount,
                                 modifier = Modifier.fillMaxSize()
                             )
                         }

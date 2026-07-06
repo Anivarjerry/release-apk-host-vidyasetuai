@@ -23,6 +23,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -494,14 +496,27 @@ fun ProfileOverviewMode(
     isUserUploadedLoading: Boolean
 ) {
     val scrollState = rememberScrollState()
+    val density = LocalDensity.current
+    val isDark = isSystemInDarkTheme()
+    val thresholdPx = with(density) { 180.dp.toPx() }
+    val scrollFraction = (scrollState.value.toFloat() / thresholdPx).coerceIn(0f, 1f)
+    
+    val hasStatusBarInset = WindowInsets.statusBars.getTop(density) > 0
+    val fallbackPadding = if (hasStatusBarInset) 0.dp else 24.dp
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(bottom = 32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .background(MaterialTheme.colorScheme.background)
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .weight(1f)
+                .verticalScroll(scrollState)
+                .padding(bottom = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
         ProfileMediaHeader(
             coverPhotoUrl = coverPhotoUrl,
             profilePicUrl = profilePicUrl,
@@ -715,21 +730,36 @@ fun ProfileOverviewMode(
                         modifier = Modifier.padding(32.dp)
                     )
                 } else {
-                    userCaseStudies.forEach { cs ->
-                        com.vidyasetuai.feature_case_study.presentation.component.CaseStudyCard(
-                            caseStudy = cs,
-                            onClick = { onCaseStudyClick(cs.id) },
-                            onReactionClick = { onCaseStudyReactionClick(cs) },
-                            onBookmarkClick = { onCaseStudyBookmarkClick(cs) },
-                            currentLanguage = currentLanguage,
-                            onExploreClick = { onCaseStudyClick(cs.id) },
-                            onAuthorClick = {}
-                        )
+                    userCaseStudies.chunked(2).forEach { rowItems ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            rowItems.forEach { cs ->
+                                Box(
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    CaseStudyGridItem(
+                                        caseStudy = cs,
+                                        onClick = { onCaseStudyClick(cs.id) },
+                                        onReactionClick = { onCaseStudyReactionClick(cs) },
+                                        onBookmarkClick = { onCaseStudyBookmarkClick(cs) },
+                                        currentLanguage = currentLanguage
+                                    )
+                                }
+                            }
+                            if (rowItems.size < 2) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
                     }
                 }
             }
         }
     }
+}
 }
 
 @Composable
@@ -757,6 +787,10 @@ fun ProfileEditMode(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
+    
+    val density = LocalDensity.current
+    val hasStatusBarInset = WindowInsets.statusBars.getTop(density) > 0
+    val fallbackPadding = if (hasStatusBarInset) 0.dp else 24.dp
 
     var firstName by remember(state.profile) { mutableStateOf(state.profile?.firstName ?: "") }
     var lastName by remember(state.profile) { mutableStateOf(state.profile?.lastName ?: "") }
@@ -892,6 +926,8 @@ fun ProfileEditMode(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(top = fallbackPadding)
                 .padding(horizontal = 8.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

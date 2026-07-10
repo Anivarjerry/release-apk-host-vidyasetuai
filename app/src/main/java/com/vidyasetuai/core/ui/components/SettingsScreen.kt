@@ -43,7 +43,7 @@ fun SettingsScreen(
             null
         }
     }
-    val versionName = packageInfo?.versionName ?: "1.7"
+    val versionName = packageInfo?.versionName ?: "1.8"
 
     var showThemeDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }

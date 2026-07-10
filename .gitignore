@@ -27,3 +27,8 @@ Thumbs.db
 
 # JVM / Crash logs
 *.hprof
+
+# Keystores / Signing Keys
+*.jks
+*.keystore
+vidyasetu_key

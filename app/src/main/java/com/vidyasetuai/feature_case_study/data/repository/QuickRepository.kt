@@ -2,6 +2,7 @@ package com.vidyasetuai.feature_case_study.data.repository
 
 import com.vidyasetuai.feature_case_study.data.remote.datasource.QuickRemoteDataSource
 import com.vidyasetuai.feature_case_study.domain.model.Quick
+import com.vidyasetuai.feature_profile.data.remote.dto.UserProfileDto
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -88,6 +89,40 @@ class QuickRepository(
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             android.util.Log.e("QuickRepository", "Error incrementing views on quick", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getQuickViewers(quickId: String): Result<List<UserProfileDto>> = withContext(Dispatchers.IO) {
+        try {
+            val profiles = remoteDataSource.getQuickViewers(quickId)
+            Result.success(profiles)
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            android.util.Log.e("QuickRepository", "Error fetching quick viewers", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getQuickHelpfulUsers(quickId: String): Result<List<UserProfileDto>> = withContext(Dispatchers.IO) {
+        try {
+            val profiles = remoteDataSource.getQuickHelpfulUsers(quickId)
+            Result.success(profiles)
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            android.util.Log.e("QuickRepository", "Error fetching quick helpful users", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteQuick(quickId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            remoteDataSource.deleteQuick(quickId)
+            cachedQuicks = null
+            Result.success(Unit)
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            android.util.Log.e("QuickRepository", "Error deleting quick", e)
             Result.failure(e)
         }
     }

@@ -499,9 +499,9 @@ fun ApplyLeaveFabSubScreen(
                 onClick = {
                     val activeSession = state.activeSessionId
                     val applicantType = if (isStudent || isGuardian) "student" else "staff"
-                    val staffId = if (!isStudent && !isGuardian) workspace?.id else null
+                    val staffId = if (!isStudent && !isGuardian) workspace?.staffId else null
                     val studentId = if (isGuardian) selectedChild?.id else if (isStudent) workspace?.studentId else null
-                    val childOrg = if (isGuardian) selectedChild?.classId else workspace?.childOrgId
+                    val childOrg = workspace?.childOrgId?.takeIf { it.isNotBlank() }
 
                     viewModel.onEvent(
                         InstitutionEvent.SubmitLeaveRequest(

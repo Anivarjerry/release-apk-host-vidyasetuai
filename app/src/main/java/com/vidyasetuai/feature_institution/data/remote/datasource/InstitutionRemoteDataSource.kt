@@ -422,6 +422,7 @@ class InstitutionRemoteDataSource {
         childOrgId: String?,
         userRole: String,
         userId: String,
+        staffId: String? = null,
         lastSyncedAt: String?
     ): WorkspaceSyncPayloadDto {
         return try {
@@ -436,6 +437,11 @@ class InstitutionRemoteDataSource {
                     }
                     put("p_user_role", userRole)
                     put("p_user_id", userId)
+                    if (!staffId.isNullOrEmpty()) {
+                        put("p_staff_id", staffId)
+                    } else {
+                        put("p_staff_id", JsonNull)
+                    }
                     if (lastSyncedAt != null) {
                         put("p_last_synced_at", lastSyncedAt)
                     }
@@ -447,7 +453,7 @@ class InstitutionRemoteDataSource {
             json.decodeFromString<WorkspaceSyncPayloadDto>(responseText)
         } catch (e: Exception) {
             android.util.Log.e("OfflineSync", "Error fetching entire workspace payload", e)
-            WorkspaceSyncPayloadDto()
+            throw e
         }
     }
 
@@ -853,5 +859,9 @@ class InstitutionRemoteDataSource {
                     eq("bus_id", busId)
                 }
             }.decodeSingleOrNull<BusLiveLocationDto>()
+    }
+
+    suspend fun insertStudentFeePayment(dto: com.vidyasetuai.feature_institution.data.remote.dto.StudentFeePaymentDto) {
+        SupabaseClient.client.from("organization_student_fee_payments").insert(dto)
     }
 }

@@ -1,11 +1,11 @@
 package com.vidyasetuai.feature_auth.presentation.screen
 
-import android.widget.Toast
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
@@ -35,7 +34,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -49,13 +47,18 @@ import com.composables.icons.lucide.Lock
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Mail
 import com.vidyasetuai.R
+import com.vidyasetuai.core.network.NetworkErrorMapper
 import com.vidyasetuai.core.ui.colors.AppColors
+import com.vidyasetuai.core.ui.components.ToastMessage
+import com.vidyasetuai.core.ui.components.ToastType
 import com.vidyasetuai.core.ui.components.VidyaSetuFieldState
 import com.vidyasetuai.core.ui.components.VidyaSetuInputField
 import com.vidyasetuai.core.ui.components.VidyaSetuPrimaryButton
+import com.vidyasetuai.core.ui.components.VidyaSetuTopToast
 import com.vidyasetuai.core.ui.components.getEmailValidationState
 import com.vidyasetuai.core.ui.components.getPasswordValidationState
 import com.vidyasetuai.feature_auth.domain.repository.AuthRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -74,8 +77,10 @@ fun SignUpScreen(
     var emailFocused by remember { mutableStateOf(false) }
     var passwordFocused by remember { mutableStateOf(false) }
     
+    var showToast by remember { mutableStateOf(false) }
+    var toastMessage by remember { mutableStateOf<ToastMessage?>(null) }
+    
     var isLoading by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
     var startAnimation by remember { mutableStateOf(false) }
     var showErrors by remember { mutableStateOf(false) }
 
@@ -119,157 +124,167 @@ fun SignUpScreen(
         else -> null
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .imePadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 44.dp)
-            .graphicsLayer(alpha = alpha, translationY = translateY),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Spacer(modifier = Modifier.height(88.dp))
-
-        Icon(
-            painter = painterResource(id = R.drawable.ic_bridge_logo),
-            contentDescription = "VidyaSetu Logo",
-            tint = AppColors.EmeraldGreen,
-            modifier = Modifier.size(width = 80.dp, height = 26.dp)
-        )
-
-        Spacer(modifier = Modifier.height(28.dp))
-
-        Text(
-            text = "Welcome to VidyaSetu AI",
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = (-0.5).sp,
-            color = MaterialTheme.colorScheme.onBackground,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Spacer(modifier = Modifier.height(48.dp))
-
-        // Error message display for API failures only
-        if (errorMessage != null) {
-            Text(
-                text = errorMessage!!,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f))
-                    .padding(horizontal = 14.dp, vertical = 10.dp)
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-
-        // ── Email Field ───────────────────────────────────────────
-        VidyaSetuInputField(
-            value = email,
-            onValueChange = { 
-                email = it 
-                if (showErrors) {
-                    showErrors = false
-                }
-            },
-            hint = "Email address",
-            leadingIcon = Lucide.Mail,
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Email,
-                imeAction = ImeAction.Next
-            ),
-            validationState = emailState,
-            errorText = emailError
-        )
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        // ── Password Field ────────────────────────────────────────
-        VidyaSetuInputField(
-            value = password,
-            onValueChange = { 
-                password = it 
-                if (showErrors) {
-                    showErrors = false
-                }
-            },
-            hint = "Password",
-            leadingIcon = Lucide.Lock,
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Password,
-                imeAction = ImeAction.Done
-            ),
-            validationState = passwordState,
-            isPassword = true,
-            passwordVisible = passwordVisible,
-            onPasswordToggle = { passwordVisible = !passwordVisible },
-            errorText = passwordError
-        )
-
-        Spacer(modifier = Modifier.height(36.dp))
-
-        // ── Create Account Button (Always Enabled / Green) ──────────
-        VidyaSetuPrimaryButton(
-            text = if (isLoading) "Sign Up..." else "Sign Up",
-            enabled = !isLoading,
-            onClick = {
-                if (!isEmailValid || !isPasswordValid) {
-                    showErrors = true
-                    errorMessage = null
-                } else {
-                    showErrors = false
-                    scope.launch {
-                        isLoading = true
-                        errorMessage = null
-                        val result = authRepository.signUp(email, password)
-                        isLoading = false
-                        result.fold(
-                            onSuccess = {
-                                Toast.makeText(context, "Account created successfully! Check your email to confirm.", Toast.LENGTH_LONG).show()
-                                onSignUpSuccess?.invoke()
-                            },
-                            onFailure = { error ->
-                                errorMessage = error.localizedMessage ?: "Sign up failed"
-                            }
-                        )
-                    }
-                }
-            },
-            modifier = Modifier.width(160.dp)
-        )
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        // ── Bottom Navigation ─────────────────────────────────────
-        Row(
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .statusBarsPadding()
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 44.dp)
+                .graphicsLayer(alpha = alpha, translationY = translateY),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                text = "Already have an account? ",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            Spacer(modifier = Modifier.height(88.dp))
+
+            Icon(
+                painter = painterResource(id = R.drawable.ic_bridge_logo),
+                contentDescription = "VidyaSetu Logo",
+                tint = AppColors.EmeraldGreen,
+                modifier = Modifier.size(width = 80.dp, height = 26.dp)
             )
-            TextButton(
-                onClick = { if (!isLoading) onNavigateToLogin?.invoke() },
-                contentPadding = PaddingValues(0.dp)
+
+            Spacer(modifier = Modifier.height(28.dp))
+
+            Text(
+                text = "Welcome to VidyaSetu AI",
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-0.5).sp,
+                color = MaterialTheme.colorScheme.onBackground,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(48.dp))
+
+            // ── Email Field ───────────────────────────────────────────
+            VidyaSetuInputField(
+                value = email,
+                onValueChange = { 
+                    email = it 
+                    if (showErrors) showErrors = false
+                },
+                hint = "Email address",
+                leadingIcon = Lucide.Mail,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Email,
+                    imeAction = ImeAction.Next
+                ),
+                validationState = emailState,
+                errorText = emailError
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // ── Password Field ────────────────────────────────────────
+            VidyaSetuInputField(
+                value = password,
+                onValueChange = { 
+                    password = it 
+                    if (showErrors) showErrors = false
+                },
+                hint = "Password",
+                leadingIcon = Lucide.Lock,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Password,
+                    imeAction = ImeAction.Done
+                ),
+                validationState = passwordState,
+                isPassword = true,
+                passwordVisible = passwordVisible,
+                onPasswordToggle = { passwordVisible = !passwordVisible },
+                errorText = passwordError
+            )
+
+            Spacer(modifier = Modifier.height(36.dp))
+
+            // ── Create Account Button (Always Enabled / Green) ──────────
+            VidyaSetuPrimaryButton(
+                text = if (isLoading) "Sign Up..." else "Sign Up",
+                enabled = !isLoading,
+                onClick = {
+                    if (!isEmailValid || !isPasswordValid) {
+                        showErrors = true
+                        toastMessage = ToastMessage(
+                            title = "Invalid Input",
+                            description = "Please check your email and password format.",
+                            type = ToastType.Warning
+                        )
+                        showToast = true
+                    } else {
+                        showErrors = false
+                        scope.launch {
+                            isLoading = true
+                            val result = authRepository.signUp(email, password)
+                            isLoading = false
+                            result.fold(
+                                onSuccess = {
+                                    toastMessage = ToastMessage(
+                                        title = "Account Created!",
+                                        description = "Please check your email inbox to confirm your account.",
+                                        type = ToastType.Success
+                                    )
+                                    showToast = true
+                                    scope.launch {
+                                        delay(2500)
+                                        showToast = false
+                                        onSignUpSuccess?.invoke()
+                                    }
+                                },
+                                onFailure = { error ->
+                                    val userFriendlyMsg = NetworkErrorMapper.parseErrorMessage(error)
+                                    toastMessage = ToastMessage(
+                                        title = "Sign Up Failed",
+                                        description = userFriendlyMsg,
+                                        type = ToastType.Error
+                                    )
+                                    showToast = true
+                                }
+                            )
+                        }
+                    }
+                },
+                modifier = Modifier.width(160.dp)
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // ── Bottom Navigation ─────────────────────────────────────
+            Row(
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "Login",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        fontWeight = FontWeight.SemiBold
-                    ),
-                    color = AppColors.EmeraldGreen
+                    text = "Already have an account? ",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                TextButton(
+                    onClick = { if (!isLoading) onNavigateToLogin?.invoke() },
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Text(
+                        text = "Login",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = AppColors.EmeraldGreen
+                    )
+                }
             }
+
+            Spacer(modifier = Modifier.height(32.dp))
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        // Top Floating Custom Toast (Replaces inline errors completely)
+        VidyaSetuTopToast(
+            visible = showToast,
+            message = toastMessage,
+            onDismiss = { showToast = false },
+            modifier = Modifier.align(Alignment.TopCenter)
+        )
     }
 }

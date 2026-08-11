@@ -33,6 +33,7 @@ fun AllLogsScreen(
     onBackClick: () -> Unit,
     todayEventTitle: String? = null,
     isSchoolClosed: Boolean = false,
+    todayLogs: List<com.vidyasetuai.feature_institution.presentation.state.TodayLogItem> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     val backgroundColor = MaterialTheme.colorScheme.background
@@ -68,8 +69,36 @@ fun AllLogsScreen(
         )
     }
 
-    val cleanRole = role.lowercase().trim()
-    val roleLogs = when {
+    if (todayLogs.isNotEmpty()) {
+        todayLogs.forEach { log ->
+            val iconVec = when (log.iconType) {
+                "user" -> Lucide.UserCheck
+                "calendar" -> Lucide.Calendar
+                "card" -> Lucide.CreditCard
+                "bus" -> Lucide.Bus
+                else -> Lucide.Info
+            }
+            val colorVal = when (log.type) {
+                "ATTENDANCE" -> AppColors.EmeraldGreen
+                "LEAVE" -> Color(0xFFF59E0B)
+                "FEE" -> Color(0xFF3B82F6)
+                "BUS" -> Color(0xFF8B5CF6)
+                else -> AppColors.EmeraldGreen
+            }
+            allLogs.add(
+                LogItem(
+                    title = log.title,
+                    titleHi = log.titleHi ?: log.title,
+                    time = log.subtitle,
+                    timeHi = log.subtitle,
+                    icon = iconVec,
+                    color = colorVal
+                )
+            )
+        }
+    } else {
+        val cleanRole = role.lowercase().trim()
+        val roleLogs = when {
         cleanRole.contains("admin") || cleanRole.contains("principal") || cleanRole.contains("director") || cleanRole.contains("owner") -> {
             listOf(
                 LogItem(
@@ -260,6 +289,7 @@ fun AllLogsScreen(
         }
     }
     allLogs.addAll(roleLogs)
+}
 
     Scaffold(
         topBar = {

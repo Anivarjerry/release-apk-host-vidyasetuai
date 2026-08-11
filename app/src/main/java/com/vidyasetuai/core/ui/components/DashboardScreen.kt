@@ -1,5 +1,17 @@
 package com.vidyasetuai.core.ui.components
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -25,11 +37,20 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.Surface
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import com.composables.icons.lucide.Zap
+import com.composables.icons.lucide.BookOpen
+import com.composables.icons.lucide.Sparkles
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.BorderStroke
@@ -39,7 +60,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -87,7 +110,6 @@ import com.vidyasetuai.core.network.SupabaseStorageHelper
 import com.vidyasetuai.feature_feed.presentation.viewmodel.ExperienceViewModel
 import com.vidyasetuai.feature_feed.presentation.event.ExperienceEvent
 import com.vidyasetuai.feature_campus.presentation.screen.CampusScreen
-import com.vidyasetuai.feature_campus.presentation.screen.ChatRoomScreen
 import com.vidyasetuai.feature_campus.presentation.screen.PrivateChatRoomScreen
 import com.vidyasetuai.feature_feed.presentation.screen.InstitutionEvent
 import com.vidyasetuai.feature_journey.presentation.screen.JourneyScreen
@@ -137,6 +159,8 @@ fun DashboardScreen(
     currentLanguage: String,
     onLanguageChange: (String) -> Unit,
     navTarget: String? = null,
+    targetRoomId: String? = null,
+    targetPeerUserId: String? = null,
     onNavTargetHandled: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -269,7 +293,7 @@ fun DashboardScreen(
     val profileViewModel = remember(userId) {
         val localDS = ProfileLocalDataSource(db.userProfileDao())
         val remoteDS = ProfileRemoteDataSource()
-        val repo = ProfileRepositoryImpl(localDS, remoteDS)
+        val repo = ProfileRepositoryImpl(localDS, remoteDS, context)
         val getProfileUC = GetUserProfileUseCase(repo)
         val updateProfileUC = UpdateUserProfileUseCase(repo)
         val checkUsernameUC = CheckUsernameUniqueUseCase(repo)
@@ -283,18 +307,48 @@ fun DashboardScreen(
         val userProfileDao = db.userProfileDao()
         val profileRemoteDS = com.vidyasetuai.feature_profile.data.remote.datasource.ProfileRemoteDataSource()
         val campusRepo = com.vidyasetuai.feature_campus.data.repository.CampusRepositoryImpl(
-            campusDao, remoteDS, userProfileDao, profileRemoteDS
+            campusDao, remoteDS, userProfileDao, profileRemoteDS, context
         )
         
-        val getRooms = com.vidyasetuai.feature_campus.domain.usecase.GetRoomsUseCase(campusRepo)
-        val getMessages = com.vidyasetuai.feature_campus.domain.usecase.GetMessagesUseCase(campusRepo)
-        val sendMessage = com.vidyasetuai.feature_campus.domain.usecase.SendMessageUseCase(campusRepo)
-        val reportMessage = com.vidyasetuai.feature_campus.domain.usecase.ReportMessageUseCase(campusRepo)
-        val loadModerationSettings = com.vidyasetuai.feature_campus.domain.usecase.LoadModerationSettingsUseCase(campusRepo)
-        
-        com.vidyasetuai.feature_campus.presentation.viewmodel.CampusViewModel(
-            getRooms, getMessages, sendMessage, reportMessage, loadModerationSettings, campusRepo
-        )
+        val vm = com.vidyasetuai.feature_campus.presentation.viewmodel.CampusViewModel(campusRepo)
+        if (userId.isNotEmpty()) {
+            vm.onEvent(com.vidyasetuai.feature_campus.presentation.event.CampusEvent.LoadMutualInspirations(userId))
+            vm.onEvent(com.vidyasetuai.feature_campus.presentation.event.CampusEvent.InitializeKeys(userId))
+        }
+        vm
+    }
+
+    LaunchedEffect(userId) {
+        if (userId.isNotEmpty()) {
+            campusViewModel.onEvent(com.vidyasetuai.feature_campus.presentation.event.CampusEvent.LoadMutualInspirations(userId))
+        }
+    }
+
+    LaunchedEffect(navTarget, targetPeerUserId, targetRoomId) {
+        if (navTarget == "private_chat_room" && targetPeerUserId != null && userId.isNotEmpty()) {
+            val peerUser = com.vidyasetuai.feature_profile.domain.model.UserProfile(
+                userId = targetPeerUserId!!,
+                email = "",
+                isActive = true,
+                isDeleted = false,
+                username = null,
+                firstName = "User",
+                lastName = null,
+                fullName = "User",
+                profilePictureUrl = null,
+                coverPhotoUrl = null,
+                bio = null,
+                preferredLanguage = null,
+                isVerified = false,
+                gender = null,
+                dateOfBirth = null
+            )
+            campusViewModel.onEvent(
+                com.vidyasetuai.feature_campus.presentation.event.CampusEvent.OpenPrivateChat(peerUser, userId)
+            )
+            navigateTo("private_chat_room")
+            onNavTargetHandled()
+        }
     }
 
     val caseStudyRepo = remember {
@@ -316,6 +370,7 @@ fun DashboardScreen(
     val cachedQuicksList = remember { mutableStateOf<List<com.vidyasetuai.feature_case_study.domain.model.Quick>>(emptyList()) }
     val cachedFullFeedList = remember { mutableStateListOf<com.vidyasetuai.feature_case_study.presentation.screen.desbord.FeedItem>() }
     var isFeedLoaded by remember { mutableStateOf(false) }
+    val homeFeedListState = androidx.compose.foundation.lazy.rememberLazyListState()
     var quickViewerList by remember { mutableStateOf<List<com.vidyasetuai.feature_case_study.domain.model.Quick>>(emptyList()) }
     var quickViewerSelectedIndex by remember { mutableStateOf(0) }
     
@@ -437,415 +492,285 @@ fun DashboardScreen(
         }
     }
 
-    if (activeTab == "quick_viewer") {
-        com.vidyasetuai.feature_case_study.presentation.screen.subscreen.QuickViewerScreen(
-            quicks = quickViewerList,
-            initialIndex = quickViewerSelectedIndex,
-            currentLanguage = currentLanguage,
-            userId = userId,
-            repository = quickRepo,
-            onBack = { navigateBack() }
-        )
-    } else if (activeTab == "case_study_detail") {
-        com.vidyasetuai.feature_case_study.presentation.screen.CaseStudyDetailScreen(
-            caseStudyId = selectedCaseStudyId ?: "",
-            userId = userId,
-            onBack = { navigateBack() }
-        )
-    } else if (activeTab == "chat_room") {
-        ChatRoomScreen(
-            viewModel = campusViewModel,
-            userId = userId,
-            currentLanguage = currentLanguage,
-            currentTheme = currentTheme,
-            onBack = {
-                campusViewModel.onEvent(com.vidyasetuai.feature_campus.presentation.event.CampusEvent.CloseActiveRoom)
-                navigateBack()
-            },
-            onUserClick = { clickedUserId ->
-                selectedPublicProfileUserId = clickedUserId
-                navigateTo("public_profile")
+    var settingsTarget by remember { mutableStateOf<String?>(null) }
+    var isEditingProfile by remember { mutableStateOf(false) }
+    var isBrowsingTemplatesInJourney by remember { mutableStateOf(false) }
+    var showHomeCreateSheet by remember { mutableStateOf(false) }
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+
+    val isSubScreenTab = activeTab in listOf(
+        "quick_viewer", "case_study_detail", "chat_room", "private_chat_room",
+        "settings", "public_profile", "inspirations_list", "tournament", "notifications"
+    )
+
+    AnimatedContent(
+        targetState = isSubScreenTab,
+        transitionSpec = {
+            if (targetState) {
+                slideInHorizontally(
+                    initialOffsetX = { fullWidth -> fullWidth },
+                    animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+                ) + fadeIn(animationSpec = tween(350)) togetherWith
+                slideOutHorizontally(
+                    targetOffsetX = { fullWidth -> -fullWidth / 4 },
+                    animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+                ) + fadeOut(animationSpec = tween(350))
+            } else {
+                slideInHorizontally(
+                    initialOffsetX = { fullWidth -> -fullWidth / 4 },
+                    animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+                ) + fadeIn(animationSpec = tween(350)) togetherWith
+                slideOutHorizontally(
+                    targetOffsetX = { fullWidth -> fullWidth },
+                    animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+                ) + fadeOut(animationSpec = tween(350))
             }
-        )
-    } else if (activeTab == "private_chat_room") {
-        PrivateChatRoomScreen(
-            viewModel = campusViewModel,
+        },
+        label = "GlobalSubScreenTransition",
+        modifier = modifier.fillMaxSize()
+    ) { showSubScreen ->
+        if (showSubScreen) {
+        DashboardSubScreens(
+            activeTab = activeTab,
+            quickViewerList = quickViewerList,
+            quickViewerSelectedIndex = quickViewerSelectedIndex,
+            selectedCaseStudyId = selectedCaseStudyId,
+            selectedPublicProfileUserId = selectedPublicProfileUserId,
+            inspirationsListUserId = inspirationsListUserId,
+            inspirationsDefaultTab = inspirationsDefaultTab,
+            navigationStack = navigationStack,
             userId = userId,
             currentLanguage = currentLanguage,
             currentTheme = currentTheme,
-            onBack = {
-                campusViewModel.onEvent(com.vidyasetuai.feature_campus.presentation.event.CampusEvent.ClosePrivateChat)
-                navigateBack()
-            }
-        )
-    } else if (activeTab == "settings") {
-        SettingsScreen(
-            currentTheme = currentTheme,
+            quickRepo = quickRepo,
+            campusViewModel = campusViewModel,
             onThemeChange = onThemeChange,
-            currentLanguage = currentLanguage,
             onLanguageChange = onLanguageChange,
-            onBack = { navigateBack() }
-        )
-    } else if (activeTab == "public_profile") {
-        PublicProfileScreen(
-            currentUserId = userId,
-            targetUserId = selectedPublicProfileUserId ?: "",
-            currentLanguage = currentLanguage,
-            onBackClick = { navigateBack() },
-            onInspirationsClick = { targetId, tabIndex ->
+            navigateBack = { navigateBack() },
+            navigateTo = { tab -> navigateTo(tab) },
+            onSelectPublicProfileUser = { clickedId -> selectedPublicProfileUserId = clickedId },
+            onSelectCaseStudy = { caseStudyId -> selectedCaseStudyId = caseStudyId },
+            onSelectInspirations = { targetId, tabIndex ->
                 inspirationsListUserId = targetId
                 inspirationsDefaultTab = tabIndex
-                navigateTo("inspirations_list")
             },
-            onCaseStudyClick = { caseStudyId ->
-                selectedCaseStudyId = caseStudyId
-                navigateTo("case_study_detail")
-            }
+            onPopNavStackForPublicProfile = { clickedUserId ->
+                val prevState = navigationStack.last()
+                navigationStack = navigationStack.dropLast(1)
+                activeTab = "public_profile"
+                selectedPublicProfileUserId = clickedUserId
+                selectedCaseStudyId = null
+                inspirationsListUserId = null
+            },
+            initialSettingsTarget = settingsTarget,
+            modifier = modifier
         )
-    } else if (activeTab == "inspirations_list") {
-        InspirationsListScreen(
-            currentUserId = userId,
-            targetUserId = inspirationsListUserId ?: "",
-            initialTab = inspirationsDefaultTab,
-            currentLanguage = currentLanguage,
-            onBackClick = { navigateBack() },
-            onUserClick = { clickedUserId ->
-                if (navigationStack.isNotEmpty() && navigationStack.last().tab == "public_profile") {
-                    val prevState = navigationStack.last()
-                    navigationStack = navigationStack.dropLast(1)
-                    activeTab = "public_profile"
-                    selectedPublicProfileUserId = clickedUserId
-                    selectedCaseStudyId = null
-                    inspirationsListUserId = null
-                } else {
-                    selectedPublicProfileUserId = clickedUserId
-                    navigateTo("public_profile")
-                }
-            }
-        )
-    } else if (activeTab == "campus" || activeTab == "notifications") {
-        // Full screen view with simple top bar (Back button + Title) and NO bottom bar
-        Scaffold(
-            modifier = modifier.fillMaxSize(),
-            topBar = {
-                Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .statusBarsPadding()
-                            .height(56.dp)
-                            .padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(
-                            onClick = { navigateBack() },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = Lucide.ArrowLeft,
-                                contentDescription = "Back",
-                                tint = MaterialTheme.colorScheme.onBackground,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = if (activeTab == "campus") {
-                                if (isHindi) "कैंपस" else "Campus"
-                            } else {
-                                if (isHindi) "नोटिफिकेशन" else "Notifications"
-                            },
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(0.5.dp)
-                            .background(MaterialTheme.colorScheme.outlineVariant)
-                    )
-                }
-            }
-        ) { innerPadding ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
-                    .padding(innerPadding)
-            ) {
-                if (activeTab == "campus") {
-                    CampusScreen(
-                        viewModel = campusViewModel,
-                        userId = userId,
-                        currentLanguage = currentLanguage,
-                        currentTheme = currentTheme,
-                        onRoomClick = { room ->
-                            campusViewModel.onEvent(com.vidyasetuai.feature_campus.presentation.event.CampusEvent.OpenRoom(room, userId))
-                            navigateTo("chat_room")
-                        },
-                        onPrivateChatClick = { otherUser ->
-                            navigateTo("private_chat_room")
-                        }
-                    )
-                } else {
-                    NotificationEvent(currentLanguage = currentLanguage, currentTheme = currentTheme)
-                }
-            }
-        }
     } else {
-        val isSubScreenActive = institutionViewModel.uiState.value.activeSubScreen != null
-        var isBrowsingTemplatesInJourney by remember { mutableStateOf(false) }
+        val isSubScreenActive = institutionViewModel.uiState.value.activeSubScreen != null || isEditingProfile
         
-        Box(modifier = Modifier.fillMaxSize()) {
-            // Standard dashboard layout with top bar and bottom navigation bar
-            Scaffold(
-            modifier = modifier.fillMaxSize(),
-            topBar = {
-                if (!isSubScreenActive) {
-                    Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)) {
-                    val topBarTitle = when (activeTab) {
-                        "home" -> "VidyaSetu AI"
-                        "institute" -> if (isHindi) "संस्थान" else "Institute"
-                        "journey" -> if (isHindi) "जर्नी" else "Journey"
-                        "tournament" -> if (isHindi) "टूर्नामेंट" else "Tournament"
-                        "profile" -> if (isHindi) "प्रोफ़ाइल" else "Profile"
-                        else -> "VidyaSetu AI"
-                    }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .statusBarsPadding()
-                            .height(56.dp)
-                            .padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = topBarTitle,
-                            fontSize = 26.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            letterSpacing = (-0.5).sp
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            gesturesEnabled = !isSubScreenActive,
+            scrimColor = Color.Black.copy(alpha = 0.65f),
+            drawerContent = {
+                DashboardDrawerContent(
+                    activeTab = activeTab,
+                    isHindi = isHindi,
+                    workspacesList = institutionViewModel.uiState.value.workspaces,
+                    activeWorkspace = institutionViewModel.uiState.value.activeWorkspace,
+                    onSwitchWorkspace = { space ->
+                        institutionViewModel.onEvent(
+                            com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.SwitchWorkspace(space.id)
                         )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            // Chat / Campus Icon with Pulsing Green Dot Highlight
-                            Box(contentAlignment = Alignment.TopEnd) {
-                                IconButton(
-                                    onClick = { navigateTo("campus") },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Lucide.MessageCircle,
-                                        contentDescription = "Campus",
-                                        tint = MaterialTheme.colorScheme.onBackground,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-                                PulsingGreenDot(
-                                    modifier = Modifier
-                                        .padding(top = 2.dp, end = 2.dp)
-                                        .align(Alignment.TopEnd)
-                                    )
-                            }
-                            IconButton(
-                                onClick = { navigateTo("settings") },
-                                modifier = Modifier.size(28.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Lucide.Settings,
-                                    contentDescription = "Settings",
-                                    tint = MaterialTheme.colorScheme.onBackground,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                        }
+                    },
+                    onOpenSyncCenter = {
+                        institutionViewModel.onEvent(
+                            com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen("pending_syncs")
+                        )
+                    },
+                    onNavigateToSubScreen = { route ->
+                        institutionViewModel.onEvent(
+                            com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(route)
+                        )
+                    },
+                    totalUnsyncedCount = institutionViewModel.uiState.value.totalUnsyncedCount,
+                    onNavigateToSettings = { target -> 
+                        settingsTarget = target
+                        navigateTo("settings") 
+                    },
+                    onCloseDrawer = {
+                        scope.launch { drawerState.close() }
                     }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(0.5.dp)
-                            .background(MaterialTheme.colorScheme.outlineVariant)
-                    )
-                }
-                }
-            },
-            bottomBar = {
-                if (!isSubScreenActive) {
-                    Column(
-                        modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.background)
-                        .navigationBarsPadding()
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(0.5.dp)
-                            .background(MaterialTheme.colorScheme.outlineVariant)
-                    )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(58.dp)
-                            .padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceAround,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // 1st Tab: Home (App logo only)
-                        val isHome = activeTab == "home"
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable {
-                                    if (isHome) {
-                                        homeTabClickCount++
-                                    } else {
-                                        selectTab("home")
-                                    }
-                                },
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_bridge_logo),
-                                contentDescription = "Home",
-                                tint = if (isHome) AppColors.EmeraldGreen else Color(0xFF8E8E93),
-                                modifier = Modifier.size(width = 24.dp, height = 20.dp)
-                            )
-                            Spacer(modifier = Modifier.height(3.dp))
-                            Text(
-                                text = if (isHindi) "होम" else "Home",
-                                fontSize = 10.sp,
-                                fontWeight = if (isHome) FontWeight.SemiBold else FontWeight.Normal,
-                                color = if (isHome) AppColors.EmeraldGreen else Color(0xFF8E8E93)
-                            )
-                        }
-
-                        // 2nd Tab: Institute (School icon)
-                        if (workspacesList.isNotEmpty()) {
-                            val isInst = activeTab == "institute"
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clickable { selectTab("institute") },
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = Lucide.School,
-                                    contentDescription = "Institute",
-                                    tint = if (isInst) AppColors.EmeraldGreen else Color(0xFF8E8E93),
-                                    modifier = Modifier.size(22.dp)
-                                )
-                                Spacer(modifier = Modifier.height(3.dp))
-                                Text(
-                                    text = if (isHindi) "संस्थान" else "Institute",
-                                    fontSize = 10.sp,
-                                    fontWeight = if (isInst) FontWeight.SemiBold else FontWeight.Normal,
-                                    color = if (isInst) AppColors.EmeraldGreen else Color(0xFF8E8E93)
-                                )
-                            }
-                        }
-
-                        // 3rd Tab: Journey (Compass icon)
-                        val isJourney = activeTab == "journey"
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { selectTab("journey") },
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Lucide.Compass,
-                                contentDescription = "Journey",
-                                tint = if (isJourney) AppColors.EmeraldGreen else Color(0xFF8E8E93),
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(modifier = Modifier.height(3.dp))
-                            Text(
-                                text = if (isHindi) "जर्नी" else "Journey",
-                                fontSize = 10.sp,
-                                fontWeight = if (isJourney) FontWeight.SemiBold else FontWeight.Normal,
-                                color = if (isJourney) AppColors.EmeraldGreen else Color(0xFF8E8E93)
-                            )
-                        }
-
-                        // 4th Tab: Tournament (Trophy icon)
-                        val isTourney = activeTab == "tournament"
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { selectTab("tournament") },
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Lucide.Trophy,
-                                contentDescription = "Tournament",
-                                tint = if (isTourney) AppColors.EmeraldGreen else Color(0xFF8E8E93),
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(modifier = Modifier.height(3.dp))
-                            Text(
-                                text = if (isHindi) "टूर्नामेंट" else "Tournament",
-                                fontSize = 10.sp,
-                                fontWeight = if (isTourney) FontWeight.SemiBold else FontWeight.Normal,
-                                color = if (isTourney) AppColors.EmeraldGreen else Color(0xFF8E8E93)
-                            )
-                        }
-
-                        // 5th Tab: Profile (User icon)
-                        val isProfile = activeTab == "profile"
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { selectTab("profile") },
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Lucide.User,
-                                contentDescription = "Profile",
-                                tint = if (isProfile) AppColors.EmeraldGreen else Color(0xFF8E8E93),
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(modifier = Modifier.height(3.dp))
-                            Text(
-                                text = if (isHindi) "प्रोफ़ाइल" else "Profile",
-                                fontSize = 10.sp,
-                                fontWeight = if (isProfile) FontWeight.SemiBold else FontWeight.Normal,
-                                color = if (isProfile) AppColors.EmeraldGreen else Color(0xFF8E8E93)
-                            )
-                        }
-                    }
-                }
-                }
+                )
             }
-        ) { innerPadding ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
-                    .padding(if (isSubScreenActive) PaddingValues(0.dp) else innerPadding)
-            ) {
-                when (activeTab) {
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                // Standard dashboard layout with top bar and bottom navigation bar
+                Scaffold(
+                    modifier = modifier.fillMaxSize(),
+                    topBar = {
+                        DashboardTopBar(
+                            activeTab = activeTab,
+                            isHindi = isHindi,
+                            isSubScreenActive = isSubScreenActive,
+                            onNavigateToSettings = { navigateTo("settings") },
+                            onOpenDrawer = {
+                                scope.launch { drawerState.open() }
+                            },
+                            onForceSyncWorkspace = {
+                                institutionViewModel.onEvent(
+                                    com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ForceRefreshActiveWorkspace
+                                )
+                            },
+                            onOpenSearchUser = {
+                                institutionViewModel.onEvent(
+                                    com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen("fab_search_user")
+                                )
+                            },
+                            onEditProfileClick = {
+                                isEditingProfile = true
+                            },
+                            onOpenHomeCreateOptions = {
+                                showHomeCreateSheet = true
+                            },
+                            onOpenAddJourney = {
+                                isBrowsingTemplatesInJourney = true
+                            },
+                            isRefreshingWorkspace = institutionViewModel.uiState.value.isLoading
+                        )
+                    },
+                    bottomBar = {
+                        DashboardBottomNav(
+                            activeTab = activeTab,
+                            workspacesList = workspacesList,
+                            isHindi = isHindi,
+                            isSubScreenActive = isSubScreenActive,
+                            onTabSelected = { tab -> selectTab(tab) },
+                            onHomeTabClicked = { homeTabClickCount++ }
+                        )
+                    },
+                    floatingActionButton = {
+                        if (institutionViewModel.uiState.value.activeSubScreen == null) {
+                            DashboardFloatingActionButton(
+                                activeTab = activeTab,
+                                role = institutionViewModel.uiState.value.activeWorkspace?.role ?: "",
+                                isHindi = isHindi,
+                                isDark = when (currentTheme) {
+                                    "dark" -> true
+                                    "light" -> false
+                                    else -> androidx.compose.foundation.isSystemInDarkTheme()
+                                },
+                                isDrawerOpen = drawerState.isOpen || drawerState.isAnimationRunning,
+                                onActionClick = { route, requiresToast, label ->
+                                    if (drawerState.isOpen) {
+                                        scope.launch { drawerState.close() }
+                                    }
+                                    if (requiresToast) {
+                                        android.widget.Toast.makeText(context, label, android.widget.Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        when (route) {
+                                            "add_case_study" -> {
+                                                checkVerificationAndRun {
+                                                    showUploadCaseStudyDialog = true
+                                                }
+                                            }
+                                            "add_experience" -> {
+                                                checkVerificationAndRun {
+                                                    showUploadExperienceDialog = true
+                                                }
+                                            }
+                                            "fab_add_case_study" -> {
+                                                checkVerificationAndRun {
+                                                    institutionViewModel.onEvent(
+                                                        com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(route)
+                                                    )
+                                                }
+                                            }
+                                            "fab_add_experience" -> {
+                                                institutionViewModel.onEvent(
+                                                    com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(route)
+                                                )
+                                            }
+                                            "add_journey" -> {
+                                                isBrowsingTemplatesInJourney = true
+                                            }
+                                            else -> {
+                                                val isHomeOrJourneyRoute = route in listOf(
+                                                    "fab_add_case_study",
+                                                    "fab_add_experience",
+                                                    "fab_quicks",
+                                                    "fab_add_journey",
+                                                    "fab_search_user"
+                                                )
+                                                if (!isHomeOrJourneyRoute && activeTab != "institute") {
+                                                    previousTabBeforeSubScreen = activeTab
+                                                    selectTab("institute")
+                                                }
+                                                institutionViewModel.onEvent(
+                                                    com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(route)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                    }
+                ) { innerPadding ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.background)
+                            .padding(if (isSubScreenActive) PaddingValues(0.dp) else innerPadding)
+                    ) {
+                        AnimatedContent(
+                            targetState = activeTab,
+                            transitionSpec = {
+                                val tabOrder = listOf("home", "institute", "journey", "campus", "profile")
+                                val initialIndex = tabOrder.indexOf(initialState).let { if (it == -1) 0 else it }
+                                val targetIndex = tabOrder.indexOf(targetState).let { if (it == -1) 0 else it }
+
+                                if (targetIndex > initialIndex) {
+                                    // Moving Forward (e.g. Home -> Campus): Slide In from Right to Left
+                                    slideInHorizontally(
+                                        initialOffsetX = { fullWidth -> fullWidth },
+                                        animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing)
+                                    ) + fadeIn(tween(durationMillis = 200)) togetherWith
+                                    slideOutHorizontally(
+                                        targetOffsetX = { fullWidth -> -fullWidth },
+                                        animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing)
+                                    ) + fadeOut(tween(durationMillis = 200))
+                                } else {
+                                    // Moving Backward (e.g. Campus -> Home): Slide In from Left to Right
+                                    slideInHorizontally(
+                                        initialOffsetX = { fullWidth -> -fullWidth },
+                                        animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing)
+                                    ) + fadeIn(tween(durationMillis = 200)) togetherWith
+                                    slideOutHorizontally(
+                                        targetOffsetX = { fullWidth -> fullWidth },
+                                        animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing)
+                                    ) + fadeOut(tween(durationMillis = 200))
+                                }
+                            },
+                            label = "MainTabTransition",
+                            modifier = Modifier.fillMaxSize()
+                        ) { targetTab ->
+                            when (targetTab) {
                     "home" -> {
                         val activeSub = institutionViewModel.uiState.value.activeSubScreen
-                        if (activeSub in listOf("fab_add_case_study", "fab_add_experience", "fab_quicks")) {
+                        if (activeSub in listOf("fab_add_case_study", "fab_add_experience", "fab_quicks") || activeSub?.startsWith("fab_add_quick:") == true) {
                             val state = institutionViewModel.uiState.value
                             val isDark = when (currentTheme) {
                                 "dark" -> true
                                 "light" -> false
                                 else -> androidx.compose.foundation.isSystemInDarkTheme()
                             }
-                            when (activeSub) {
-                                "fab_add_case_study" -> AddCaseStudyFabSubScreen(
+                            val initialQuickUri = if (activeSub?.startsWith("fab_add_quick:") == true) {
+                                activeSub.substringAfter("fab_add_quick:").takeIf { it.isNotBlank() }?.let { android.net.Uri.parse(it) }
+                            } else null
+
+                            when {
+                                activeSub == "fab_add_case_study" -> AddCaseStudyFabSubScreen(
                                     state = state,
                                     isHindi = isHindi,
                                     isDark = isDark,
@@ -853,7 +778,7 @@ fun DashboardScreen(
                                     repository = caseStudyRepo,
                                     onBack = { institutionViewModel.onEvent(com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(null)) }
                                 )
-                                "fab_add_experience" -> AddExperienceFabSubScreen(
+                                activeSub == "fab_add_experience" -> AddExperienceFabSubScreen(
                                     state = state,
                                     isHindi = isHindi,
                                     isDark = isDark,
@@ -861,7 +786,7 @@ fun DashboardScreen(
                                     repository = experienceRepo,
                                     onBack = { institutionViewModel.onEvent(com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(null)) }
                                 )
-                                "fab_quicks" -> QuicksFabSubScreen(
+                                activeSub == "fab_quicks" || activeSub?.startsWith("fab_add_quick:") == true -> QuicksFabSubScreen(
                                     state = state,
                                     isHindi = isHindi,
                                     isDark = isDark,
@@ -877,7 +802,8 @@ fun DashboardScreen(
                                     onQuicksListChange = { cachedFabQuicksList.value = it },
                                     isQuicksLoaded = isFabQuicksLoaded,
                                     onQuicksLoadedChange = { isFabQuicksLoaded = it },
-                                    onBack = { institutionViewModel.onEvent(com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(null)) }
+                                    onBack = { institutionViewModel.onEvent(com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(null)) },
+                                    initialImageUri = initialQuickUri
                                 )
                             }
                         } else {
@@ -893,6 +819,12 @@ fun DashboardScreen(
                                         val id = route.substringAfter("case_study_detail:")
                                         selectedCaseStudyId = id
                                         navigateTo("case_study_detail")
+                                    } else if (route.startsWith("public_profile:")) {
+                                        val authorId = route.substringAfter("public_profile:")
+                                        if (authorId.isNotBlank()) {
+                                            selectedPublicProfileUserId = authorId
+                                            navigateTo("public_profile")
+                                        }
                                     } else if (route == "fab_add_case_study" || route == "fab_add_experience") {
                                         checkVerificationAndRun {
                                             institutionViewModel.onEvent(com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(route))
@@ -912,6 +844,8 @@ fun DashboardScreen(
                                     navigateTo("quick_viewer")
                                 },
                                 homeTabClickCount = homeTabClickCount,
+                                checkVerification = { onVerified -> checkVerificationAndRun { onVerified() } },
+                                listState = homeFeedListState,
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
@@ -979,7 +913,49 @@ fun DashboardScreen(
                             )
                         }
                     }
-                    "tournament" -> TournamentEvent(currentLanguage = currentLanguage, currentTheme = currentTheme)
+                    "campus" -> {
+                        val activeSub = institutionViewModel.uiState.value.activeSubScreen
+                        if (activeSub == "fab_search_user") {
+                            SearchUserFabSubScreen(
+                                isHindi = isHindi,
+                                isDark = when (currentTheme) {
+                                    "dark" -> true
+                                    "light" -> false
+                                    else -> androidx.compose.foundation.isSystemInDarkTheme()
+                                },
+                                currentUserId = userId,
+                                onBack = {
+                                    institutionViewModel.onEvent(
+                                        com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(null)
+                                    )
+                                },
+                                onUserClick = { targetUserId ->
+                                    institutionViewModel.onEvent(
+                                        com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(null)
+                                    )
+                                    selectedPublicProfileUserId = targetUserId
+                                    navigateTo("public_profile")
+                                }
+                            )
+                        } else {
+                        val campusState by campusViewModel.state.collectAsState()
+                        CampusScreen(
+                            state = campusState,
+                            isHindi = isHindi,
+                            onPrivateChatClick = { targetUser ->
+                                campusViewModel.onEvent(
+                                    com.vidyasetuai.feature_campus.presentation.event.CampusEvent.OpenPrivateChat(targetUser, userId)
+                                )
+                                navigateTo("private_chat_room")
+                            },
+                            onOpenSearchUserSubScreen = {
+                                institutionViewModel.onEvent(
+                                    com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen("fab_search_user")
+                                )
+                            }
+                        )
+                        }
+                    }
                     "profile" -> {
                         val activeSub = institutionViewModel.uiState.value.activeSubScreen
                         if (activeSub == "fab_search_user") {
@@ -990,6 +966,7 @@ fun DashboardScreen(
                                     "light" -> false
                                     else -> androidx.compose.foundation.isSystemInDarkTheme()
                                 },
+                                currentUserId = userId,
                                 onBack = {
                                     institutionViewModel.onEvent(
                                         com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(null)
@@ -1012,23 +989,25 @@ fun DashboardScreen(
                                     selectedCaseStudyId = caseStudyId
                                     navigateTo("case_study_detail")
                                 },
+                                isEditModeRequested = isEditingProfile,
+                                onEditModeChange = { editing ->
+                                    isEditingProfile = editing
+                                },
                                 onInspirationsClick = { targetId, tabIndex ->
                                     inspirationsListUserId = targetId
                                     inspirationsDefaultTab = tabIndex
                                     navigateTo("inspirations_list")
-                                },
-                                onEditModeChange = { editing ->
-                                    val route = if (editing) "edit_profile" else null
-                                    institutionViewModel.onEvent(
-                                        com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(route)
-                                    )
                                 }
                             )
                         }
                     }
                 }
-            }
         }
+    }
+}
+        }
+    }
+}
 
         // Render Upload Dialogs
         if (showUploadCaseStudyDialog) {
@@ -1076,146 +1055,31 @@ fun DashboardScreen(
             )
         }
 
-        if (checkingVerification) {
-            Dialog(onDismissRequest = {}) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    modifier = Modifier.size(100.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        CircularProgressIndicator(color = AppColors.EmeraldGreen)
-                    }
+        HomeCreateBottomSheet(
+            visible = showHomeCreateSheet,
+            isHindi = isHindi,
+            isDark = when (currentTheme) {
+                "dark" -> true
+                "light" -> false
+                else -> androidx.compose.foundation.isSystemInDarkTheme()
+            },
+            onDismiss = { showHomeCreateSheet = false },
+            onOptionSelected = { route ->
+                checkVerificationAndRun {
+                    institutionViewModel.onEvent(
+                        com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(route)
+                    )
                 }
             }
-        }
+        )
 
-        if (showNotVerifiedAlert) {
-            Dialog(onDismissRequest = { showNotVerifiedAlert = false }) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            imageVector = Lucide.CircleAlert,
-                            contentDescription = "Alert",
-                            tint = Color(0xFFE53935),
-                            modifier = Modifier.size(44.dp)
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = if (isHindi) "सत्यापन आवश्यक" else "Verification Required",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = verificationStatusMessage,
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            lineHeight = 20.sp
-                        )
-                        Spacer(modifier = Modifier.height(24.dp))
-                        Button(
-                            onClick = { showNotVerifiedAlert = false },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = AppColors.EmeraldGreen
-                            ),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth().height(44.dp)
-                        ) {
-                            Text(
-                                text = if (isHindi) "ठीक है" else "OK",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                        }
-                    }
-                }
-            }
-        }
-            
-        if (institutionViewModel.uiState.value.activeSubScreen == null) {
-            DashboardFloatingActionButton(
-                activeTab = activeTab,
-                role = institutionViewModel.uiState.value.activeWorkspace?.role ?: "",
-                isHindi = isHindi,
-                isDark = when (currentTheme) {
-                    "dark" -> true
-                    "light" -> false
-                    else -> androidx.compose.foundation.isSystemInDarkTheme()
-                },
-                onActionClick = { route, requiresToast, label ->
-                    if (requiresToast) {
-                        android.widget.Toast.makeText(context, label, android.widget.Toast.LENGTH_SHORT).show()
-                    } else {
-                        when (route) {
-                            "add_case_study" -> {
-                                checkVerificationAndRun {
-                                    showUploadCaseStudyDialog = true
-                                }
-                            }
-                            "add_experience" -> {
-                                checkVerificationAndRun {
-                                    showUploadExperienceDialog = true
-                                }
-                            }
-                            "fab_add_case_study" -> {
-                                checkVerificationAndRun {
-                                    institutionViewModel.onEvent(
-                                        com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(route)
-                                    )
-                                }
-                            }
-                            "fab_add_experience" -> {
-                                checkVerificationAndRun {
-                                    institutionViewModel.onEvent(
-                                        com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(route)
-                                    )
-                                }
-                            }
-                            "add_journey" -> {
-                                isBrowsingTemplatesInJourney = true
-                            }
-                            else -> {
-                                val isHomeOrJourneyRoute = route in listOf(
-                                    "fab_add_case_study",
-                                    "fab_add_experience",
-                                    "fab_quicks",
-                                    "fab_add_journey",
-                                    "fab_search_user"
-                                )
-                                if (!isHomeOrJourneyRoute && activeTab != "institute") {
-                                    previousTabBeforeSubScreen = activeTab
-                                    selectTab("institute")
-                                }
-                                institutionViewModel.onEvent(
-                                    com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(route)
-                                )
-                            }
-                        }
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-        }
+        VerificationAlerts(
+            checkingVerification = checkingVerification,
+            showNotVerifiedAlert = showNotVerifiedAlert,
+            verificationStatusMessage = verificationStatusMessage,
+            isHindi = isHindi,
+            onDismissAlert = { showNotVerifiedAlert = false }
+        )
     }
 }
 
@@ -1263,544 +1127,116 @@ fun PulsingGreenDot(modifier: Modifier = Modifier) {
     }
 }
 
-private fun processSquareImage(context: android.content.Context, uri: Uri): ByteArray? {
-    return try {
-        context.contentResolver.openInputStream(uri)?.use { inputStream ->
-            val originalBitmap = BitmapFactory.decodeStream(inputStream) ?: return null
-            val width = originalBitmap.width
-            val height = originalBitmap.height
-            val squareSize = if (width < height) width else height
-            val x = (width - squareSize) / 2
-            val y = (height - squareSize) / 2
-            
-            val cropped = Bitmap.createBitmap(originalBitmap, x, y, squareSize, squareSize)
-            val scaled = Bitmap.createScaledBitmap(cropped, 600, 600, true)
-            
-            val outputStream = ByteArrayOutputStream()
-            scaled.compress(Bitmap.CompressFormat.JPEG, 85, outputStream)
-            val bytes = outputStream.toByteArray()
-            
-            if (cropped != scaled) cropped.recycle()
-            if (originalBitmap != cropped) originalBitmap.recycle()
-            scaled.recycle()
-            
-            bytes
-        }
-    } catch (e: Exception) {
-        android.util.Log.e("DashboardScreen", "Error processing square image", e)
-        null
-    }
-}
-
 @Composable
-fun UploadCaseStudyDialog(
-    userId: String,
-    currentLanguage: String,
+fun HomeCreateBottomSheet(
+    visible: Boolean,
+    isHindi: Boolean,
+    isDark: Boolean,
     onDismiss: () -> Unit,
-    onSubmit: (
-        title: String,
-        shortDescription: String,
-        coverImageUrl: String,
-        language: String,
-        tags: List<String>,
-        readTimeMinutes: Int?,
-        detailedContent: String,
-        additionalImageUrls: List<String>
-    ) -> Unit
+    onOptionSelected: (String) -> Unit
 ) {
-    val isHindi = currentLanguage == "hi"
-    var title by remember { mutableStateOf("") }
-    var shortDescription by remember { mutableStateOf("") }
-    var selectedLanguage by remember { mutableStateOf("hindi") } // "hindi", "english", "bilingual"
-    var tagsInput by remember { mutableStateOf("") }
-    var readTimeInput by remember { mutableStateOf("") }
-    var detailedContent by remember { mutableStateOf("") }
-    
-    var coverImageUri by remember { mutableStateOf<Uri?>(null) }
-    var additionalImageUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
-    
-    var isUploading by remember { mutableStateOf(false) }
-    var uploadStatusText by remember { mutableStateOf("") }
-    
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val scope = rememberCoroutineScope()
-
-    val coverPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        coverImageUri = uri
-    }
-    
-    val additionalPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        uri?.let {
-            if (additionalImageUris.size < 4) {
-                additionalImageUris = additionalImageUris + it
-            }
-        }
-    }
-
-    val handleFormSubmit = {
-        if (title.isNotBlank() && shortDescription.isNotBlank() && detailedContent.isNotBlank() && coverImageUri != null) {
-            scope.launch {
-                isUploading = true
-                try {
-                    // 1. Process and upload cover photo
-                    uploadStatusText = if (isHindi) "कवर फोटो अपलोड हो रही है..." else "Uploading cover photo..."
-                    val coverBytes = processSquareImage(context, coverImageUri!!)
-                    if (coverBytes == null) {
-                        throw Exception("Failed to process cover image")
-                    }
-                    val coverFileName = "covers/cover_${System.currentTimeMillis()}_${java.util.UUID.randomUUID().toString().take(4)}.jpg"
-                    val coverUrl = SupabaseStorageHelper.uploadImage("case-study-images", coverFileName, coverBytes)
-                    
-                    // 2. Process and upload additional content photos
-                    val contentUrls = mutableListOf<String>()
-                    additionalImageUris.forEachIndexed { index, uri ->
-                        uploadStatusText = if (isHindi) {
-                            "अतिरिक्त चित्र अपलोड हो रहा है (${index + 1}/${additionalImageUris.size})..."
-                        } else {
-                            "Uploading additional image (${index + 1}/${additionalImageUris.size})..."
-                        }
-                        val imageBytes = processSquareImage(context, uri)
-                        if (imageBytes != null) {
-                            val contentFileName = "content/content_${System.currentTimeMillis()}_${index}_${java.util.UUID.randomUUID().toString().take(4)}.jpg"
-                            val contentUrl = SupabaseStorageHelper.uploadImage("case-study-images", contentFileName, imageBytes)
-                            contentUrls.add(contentUrl)
-                        }
-                    }
-                    
-                    // 3. Process tags
-                    val tagsList = tagsInput.split(",")
-                        .map { it.trim() }
-                        .filter { it.isNotEmpty() }
-                        
-                    // 4. Process read time
-                    val readTime = readTimeInput.toIntOrNull()
-                    
-                    uploadStatusText = if (isHindi) "केस स्टडी जमा हो रही है..." else "Submitting case study..."
-                    onSubmit(
-                        title,
-                        shortDescription,
-                        coverUrl,
-                        selectedLanguage,
-                        tagsList,
-                        readTime,
-                        detailedContent,
-                        contentUrls
-                    )
-                } catch (e: Exception) {
-                    android.util.Log.e("UploadCaseStudy", "Error uploading case study", e)
-                } finally {
-                    isUploading = false
-                    uploadStatusText = ""
-                }
-            }
-        }
-    }
-
-    Dialog(onDismissRequest = { if (!isUploading) onDismiss() }) {
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surface,
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(180)),
+        exit = fadeOut(tween(220))
+    ) {
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 16.dp)
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.54f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    onDismiss()
+                },
+            contentAlignment = Alignment.BottomCenter
         ) {
-            Box {
+            AnimatedVisibility(
+                visible = visible,
+                enter = slideInVertically(
+                    initialOffsetY = { fullHeight -> fullHeight },
+                    animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
+                ) + fadeIn(tween(180)),
+                exit = slideOutVertically(
+                    targetOffsetY = { fullHeight -> fullHeight },
+                    animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                ) + fadeOut(tween(180))
+            ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp)
-                        .verticalScroll(rememberScrollState())
+                        .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                        .background(if (isDark) Color(0xFF1C1C1E) else Color.White)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {} // Prevent click through to backdrop scrim
+                        .navigationBarsPadding()
+                        .padding(horizontal = 20.dp, vertical = 12.dp)
                 ) {
-                    // Header
-                    Text(
-                        text = if (isHindi) "केस स्टडी अपलोड करें" else "Upload Case Study",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = AppColors.EmeraldGreen
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    // Cover Image Selection Card
-                    Text(
-                        text = if (isHindi) "कवर फोटो (Cover Photo) *" else "Cover Photo *",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(150.dp)
-                            .background(
-                                MaterialTheme.colorScheme.background,
-                                RoundedCornerShape(8.dp)
-                            )
-                            .clickable(enabled = !isUploading) { coverPickerLauncher.launch("image/*") },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (coverImageUri != null) {
-                            AsyncImage(
-                                model = coverImageUri,
-                                contentDescription = "Cover Preview",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clip(RoundedCornerShape(8.dp))
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color.Black.copy(alpha = 0.3f))
-                            )
-                            Text(
-                                text = if (isHindi) "कवर बदलें" else "Change Cover",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
-                            )
-                        } else {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    imageVector = Lucide.Plus,
-                                    contentDescription = "Add Cover",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(36.dp)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = if (isHindi) "मुख्य कवर फोटो चुनें (1:1 क्रॉप होगी)" else "Choose Cover Photo (will crop 1:1)",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                    fontSize = 12.sp
-                                )
-                            }
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    // Title Field
+                            .align(Alignment.CenterHorizontally)
+                            .padding(bottom = 14.dp)
+                            .width(38.dp)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(if (isDark) Color(0xFF3A3A3C) else Color(0xFFE5E5EA))
+                    )
+
                     Text(
-                        text = if (isHindi) "शीर्षक (Title) *" else "Title *",
-                        fontSize = 13.sp,
+                        text = if (isHindi) "नया कंटेंट बनाएँ" else "Create New Content",
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(bottom = 16.dp)
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    BasicTextField(
-                        value = title,
-                        onValueChange = { if (it.length <= 200) title = it },
-                        textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp),
-                        enabled = !isUploading,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.background, RoundedCornerShape(8.dp))
-                            .padding(12.dp),
-                        decorationBox = { innerTextField ->
-                            if (title.isEmpty()) {
-                                Text(
-                                    text = if (isHindi) "शीर्षक दर्ज करें..." else "Enter title...",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                    fontSize = 15.sp
-                                )
-                            }
-                            innerTextField()
+
+                    // Option 1: Quicks
+                    HomeCreateOptionRow(
+                        icon = Lucide.Zap,
+                        title = if (isHindi) "क्विक्स (Shorts & Video)" else "Quicks (Shorts & Video)",
+                        subtitle = if (isHindi) "शॉर्ट वीडियो व क्विक पोस्ट बनाएँ" else "Share quick short videos & posts",
+                        iconTint = AppColors.EmeraldGreen,
+                        isDark = isDark,
+                        onClick = {
+                            onDismiss()
+                            onOptionSelected("fab_quicks")
                         }
                     )
-                    
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Option 2: Case Study Upload
+                    HomeCreateOptionRow(
+                        icon = Lucide.BookOpen,
+                        title = if (isHindi) "केस स्टडी (Upload Case Study)" else "Upload Case Study",
+                        subtitle = if (isHindi) "विस्तृत केस स्टडी और रिसर्च पब्लिश करें" else "Publish detailed case studies & research",
+                        iconTint = Color(0xFF007AFF),
+                        isDark = isDark,
+                        onClick = {
+                            onDismiss()
+                            onOptionSelected("fab_add_case_study")
+                        }
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Option 3: Experience Share
+                    HomeCreateOptionRow(
+                        icon = Lucide.Sparkles,
+                        title = if (isHindi) "अनुभव शेयर (Share Experience)" else "Share Experience",
+                        subtitle = if (isHindi) "अपना अनुभव व सीख शेयर करें" else "Share your experience & learning journey",
+                        iconTint = Color(0xFFFF9500),
+                        isDark = isDark,
+                        onClick = {
+                            onDismiss()
+                            onOptionSelected("fab_add_experience")
+                        }
+                    )
+
                     Spacer(modifier = Modifier.height(16.dp))
-                    
-                    // Short Description Field
-                    Text(
-                        text = if (isHindi) "संक्षिप्त विवरण (Short Description) *" else "Short Description *",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    BasicTextField(
-                        value = shortDescription,
-                        onValueChange = { if (it.length <= 300) shortDescription = it },
-                        textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp),
-                        enabled = !isUploading,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(80.dp)
-                            .background(MaterialTheme.colorScheme.background, RoundedCornerShape(8.dp))
-                            .padding(12.dp),
-                        decorationBox = { innerTextField ->
-                            if (shortDescription.isEmpty()) {
-                                Text(
-                                    text = if (isHindi) "संक्षिप्त विवरण दर्ज करें (अधिकतम 300 वर्ण)..." else "Enter short description (max 300 chars)...",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                    fontSize = 14.sp
-                                )
-                            }
-                            innerTextField()
-                        }
-                    )
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    // Language Choice (Hindi / English / Bilingual)
-                    Text(
-                        text = if (isHindi) "भाषा (Language) *" else "Language *",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        listOf("hindi", "english", "bilingual").forEach { lang ->
-                            val isSelected = selectedLanguage == lang
-                            val label = when (lang) {
-                                "hindi" -> if (isHindi) "हिंदी" else "Hindi"
-                                "english" -> if (isHindi) "अंग्रेजी" else "English"
-                                else -> if (isHindi) "द्विभाषी" else "Bilingual"
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .background(
-                                        if (isSelected) AppColors.EmeraldGreen else MaterialTheme.colorScheme.background,
-                                        RoundedCornerShape(20.dp)
-                                    )
-                                    .border(
-                                        width = 1.dp,
-                                        color = if (isSelected) Color.Transparent else MaterialTheme.colorScheme.outlineVariant,
-                                        shape = RoundedCornerShape(20.dp)
-                                    )
-                                    .clickable(enabled = !isUploading) { selectedLanguage = lang }
-                                    .padding(vertical = 8.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = label,
-                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    // Tags Input (comma separated)
-                    Text(
-                        text = if (isHindi) "टैग (Tags) - अल्पविराम (comma) से अलग करें" else "Tags - separated by comma",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    BasicTextField(
-                        value = tagsInput,
-                        onValueChange = { tagsInput = it },
-                        textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp),
-                        enabled = !isUploading,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.background, RoundedCornerShape(8.dp))
-                            .padding(12.dp),
-                        decorationBox = { innerTextField ->
-                            if (tagsInput.isEmpty()) {
-                                Text(
-                                    text = if (isHindi) "उदा. Education, AI, Tech" else "e.g. Education, AI, Tech",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                    fontSize = 15.sp
-                                )
-                            }
-                            innerTextField()
-                        }
-                    )
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    // Read Time Minutes (numeric)
-                    Text(
-                        text = if (isHindi) "पढ़ने का समय (मिनट में)" else "Read Time (in minutes)",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    BasicTextField(
-                        value = readTimeInput,
-                        onValueChange = { if (it.isEmpty() || it.all { char -> char.isDigit() }) readTimeInput = it },
-                        textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp),
-                        enabled = !isUploading,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.background, RoundedCornerShape(8.dp))
-                            .padding(12.dp),
-                        decorationBox = { innerTextField ->
-                            if (readTimeInput.isEmpty()) {
-                                Text(
-                                    text = if (isHindi) "उदा. 5" else "e.g. 5",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                    fontSize = 15.sp
-                                )
-                            }
-                            innerTextField()
-                        }
-                    )
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    // Detailed Content (multiline text area)
-                    Text(
-                        text = if (isHindi) "विस्तृत सामग्री (Detailed Content) *" else "Detailed Content *",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    BasicTextField(
-                        value = detailedContent,
-                        onValueChange = { detailedContent = it },
-                        textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp),
-                        enabled = !isUploading,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(150.dp)
-                            .background(MaterialTheme.colorScheme.background, RoundedCornerShape(8.dp))
-                            .padding(12.dp),
-                        decorationBox = { innerTextField ->
-                            if (detailedContent.isEmpty()) {
-                                Text(
-                                    text = if (isHindi) "केस स्टडी का मुख्य विवरण यहाँ लिखें..." else "Write main case study detailed content here...",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                    fontSize = 14.sp
-                                )
-                            }
-                            innerTextField()
-                        }
-                    )
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    // Additional Images (max 4, horizontal thumbnails + plus card)
-                    Text(
-                        text = if (isHindi) "अतिरिक्त चित्र (अधिक्तम 4)" else "Additional Images (max 4)",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        additionalImageUris.forEachIndexed { idx, uri ->
-                            Box(
-                                modifier = Modifier
-                                    .size(68.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                            ) {
-                                AsyncImage(
-                                    model = uri,
-                                    contentDescription = "Content Image $idx",
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.TopEnd)
-                                        .size(20.dp)
-                                        .background(Color.Red.copy(alpha = 0.7f), CircleShape)
-                                        .clickable(enabled = !isUploading) {
-                                            additionalImageUris = additionalImageUris.filterIndexed { index, _ -> index != idx }
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(text = "×", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(bottom = 2.dp))
-                                }
-                            }
-                        }
-                        if (additionalImageUris.size < 4) {
-                            Box(
-                                modifier = Modifier
-                                    .size(68.dp)
-                                    .background(MaterialTheme.colorScheme.background, RoundedCornerShape(8.dp))
-                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
-                                    .clickable(enabled = !isUploading) { additionalPickerLauncher.launch("image/*") },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Lucide.Plus,
-                                    contentDescription = "Add Content Image",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.height(28.dp))
-                    
-                    // Buttons
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        OutlinedButton(
-                            onClick = onDismiss,
-                            enabled = !isUploading,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(text = if (isHindi) "रद्द करें" else "Cancel")
-                        }
-                        Button(
-                            onClick = handleFormSubmit,
-                            enabled = title.isNotBlank() && shortDescription.isNotBlank() && detailedContent.isNotBlank() && coverImageUri != null && !isUploading,
-                            colors = ButtonDefaults.buttonColors(containerColor = AppColors.EmeraldGreen),
-                            modifier = Modifier.weight(1.2f)
-                        ) {
-                            Text(text = if (isHindi) "सबमिट करें" else "Submit", color = Color.White)
-                        }
-                    }
-                }
-                
-                // Loading Overlay inside the Dialog
-                if (isUploading) {
-                    Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .background(Color.Black.copy(alpha = 0.5f))
-                            .clickable(enabled = false) {},
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surface,
-                            modifier = Modifier.padding(24.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(20.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                CircularProgressIndicator(color = AppColors.EmeraldGreen)
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Text(
-                                    text = uploadStatusText,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -1808,183 +1244,56 @@ fun UploadCaseStudyDialog(
 }
 
 @Composable
-fun UploadExperienceDialog(
-    userId: String,
-    currentLanguage: String,
-    onDismiss: () -> Unit,
-    onSubmit: (title: String, description: String, imageUrl: String?) -> Unit
+private fun HomeCreateOptionRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String,
+    iconTint: Color,
+    isDark: Boolean,
+    onClick: () -> Unit
 ) {
-    val isHindi = currentLanguage == "hi"
-    var title by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var coverImageUrl by remember { mutableStateOf<String?>(null) }
-    var isUploading by remember { mutableStateOf(false) }
-
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val scope = rememberCoroutineScope()
-
-    val pickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        uri?.let {
-            val bytes = context.contentResolver.openInputStream(uri)?.readBytes()
-            if (bytes != null) {
-                val fileName = "experiences/experience_${System.currentTimeMillis()}.jpg"
-                scope.launch {
-                    isUploading = true
-                    try {
-                        val publicUrl =
-                            SupabaseStorageHelper.uploadImage("media", fileName, bytes)
-                        coverImageUrl = publicUrl
-                    } catch (e: Exception) {
-                        android.util.Log.e("UploadDialog", "Failed to upload experience image", e)
-                    } finally {
-                        isUploading = false
-                    }
-                }
-            }
-        }
-    }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surface,
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        color = if (isDark) Color(0xFF2C2C2E) else Color(0xFFF2F2F7),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(iconTint.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
             ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = title,
+                    tint = iconTint,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = if (isHindi) "अनुभव साझा करें" else "Share Experience",
-                    fontSize = 18.sp,
+                    text = title,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Title Field
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = if (isHindi) "शीर्षक (Title)" else "Title",
+                    text = subtitle,
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-                BasicTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    textStyle = TextStyle(
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 15.sp
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.background, RoundedCornerShape(6.dp))
-                        .padding(10.dp),
-                    decorationBox = { innerTextField ->
-                        if (title.isEmpty()) {
-                            Text(
-                                text = if (isHindi) "अपना अनुभव का शीर्षक लिखें..." else "Enter title...",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                fontSize = 15.sp
-                            )
-                        }
-                        innerTextField()
-                    }
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Description Field
-                Text(
-                    text = if (isHindi) "विवरण (Description)" else "Description",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                BasicTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    textStyle = TextStyle(
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 15.sp
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(80.dp)
-                        .background(MaterialTheme.colorScheme.background, RoundedCornerShape(6.dp))
-                        .padding(10.dp),
-                    decorationBox = { innerTextField ->
-                        if (description.isEmpty()) {
-                            Text(
-                                text = if (isHindi) "विवरण लिखें..." else "Enter description...",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                fontSize = 15.sp
-                            )
-                        }
-                        innerTextField()
-                    }
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Image Upload Button
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedButton(
-                        onClick = { pickerLauncher.launch("image/*") },
-                        enabled = !isUploading,
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(
-                            text = if (isUploading) {
-                                if (isHindi) "अपलोड हो रहा है..." else "Uploading..."
-                            } else {
-                                if (isHindi) "कवर फोटो चुनें (वैकल्पिक)" else "Choose Cover Photo (Optional)"
-                            }
-                        )
-                    }
-                    if (coverImageUrl != null) {
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Icon(
-                            imageVector = Lucide.Check,
-                            contentDescription = "Uploaded",
-                            tint = AppColors.EmeraldGreen,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // Action Buttons
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(text = if (isHindi) "रद्द करें" else "Cancel")
-                    }
-                    Button(
-                        onClick = { onSubmit(title, description, coverImageUrl) },
-                        enabled = title.isNotBlank() && description.isNotBlank() && !isUploading,
-                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.EmeraldGreen),
-                        modifier = Modifier.weight(1.2f)
-                    ) {
-                        Text(text = if (isHindi) "साझा करें" else "Share", color = Color.White)
-                    }
-                }
             }
         }
     }
 }
+

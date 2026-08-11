@@ -1,6 +1,7 @@
 package com.vidyasetuai.feature_institution.data.remote.dto
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
 @Serializable
 data class WorkspaceLinkDto(
@@ -236,6 +237,7 @@ data class StudentFeePaymentDto(
     val organization_id: String,
     val active_session_id: String,
     val student_id: String,
+    val fee_head_type_id: String? = null,
     val receipt_number: String,
     val payment_mode: String,
     val payment_date: String,
@@ -244,9 +246,13 @@ data class StudentFeePaymentDto(
     val fine_amount: Double,
     val discount_reason: String?,
     val cash_received_by_user_id: String?,
+    @Transient
     val cash_received_by_user_name: String? = null,
     val cheque_number: String?,
+    val cheque_date: String? = null,
+    val cheque_bank_name: String? = null,
     val online_transaction_id: String?,
+    val online_payment_app: String? = null,
     val remarks: String?,
     val status: String,
     val is_active: Boolean,
@@ -513,6 +519,7 @@ data class ParentStaffDto(
     val is_active: Boolean,
     val is_deleted: Boolean,
     val role_id: String?,
+    val role_name: String? = null,
     val subject_id: String?,
     val address_area_id: String?
 )
@@ -847,7 +854,116 @@ data class WorkspaceSyncPayloadDto(
     val bus_trip_attendance_logs: List<ParentBusTripAttendanceLogDto> = emptyList(),
     val calendar_events: List<CalendarEventDto> = emptyList(),
     val exam_subject_settings: List<ExamSubjectSettingDto> = emptyList(),
-    val remarks: List<OrganizationRemarkDto> = emptyList()
+    val remarks: List<OrganizationRemarkDto> = emptyList(),
+    val staff_salaries: List<ParentStaffSalaryDto> = emptyList(),
+    val staff_salary_payouts: List<ParentStaffSalaryPayoutDto> = emptyList(),
+    val staff_salary_payments: List<ParentStaffSalaryPaymentDto> = emptyList(),
+    val staff_bus_enrollments: List<ParentStaffBusEnrollmentDto> = emptyList(),
+    val staff_bus_fares: List<ParentStaffBusFareDto> = emptyList(),
+    val global_sessions: List<GlobalSessionDto> = emptyList(),
+    val staff_audio_beacons: List<StaffAudioBeaconDto> = emptyList()
+)
+
+@Serializable
+data class StaffAudioBeaconDto(
+    val staff_id: String,
+    val parent_organization_id: String,
+    val audio_code: String,
+    val secret_salt: String = "",
+    val valid_until: String = "",
+    val is_active: Boolean = true,
+    val updated_at: String = ""
+)
+
+@Serializable
+data class GlobalSessionDto(
+    val id: String,
+    val name: String,
+    val is_active: Boolean = true,
+    val is_deleted: Boolean = false,
+    val starting_date: String? = null,
+    val ending_date: String? = null,
+    val update_before_ending_days: Int? = 30
+)
+
+@Serializable
+data class ParentStaffSalaryDto(
+    val id: String,
+    val parent_organization_id: String,
+    val active_session_id: String,
+    val staff_id: String,
+    val monthly_salary: Double = 0.0,
+    val bank_name: String? = null,
+    val bank_account_number: String? = null,
+    val ifsc_code: String? = null,
+    val upi_id: String? = null,
+    val is_active: Boolean = true,
+    val is_deleted: Boolean = false
+)
+
+@Serializable
+data class ParentStaffSalaryPayoutDto(
+    val id: String,
+    val parent_organization_id: String,
+    val active_session_id: String,
+    val staff_id: String,
+    val payout_month: Int,
+    val payout_year: Int,
+    val salary_amount: Double = 0.0,
+    val bonus: Double = 0.0,
+    val deduction: Double = 0.0,
+    val is_locked: Boolean = false,
+    val locked_at: String? = null,
+    val locked_by: String? = null,
+    val is_active: Boolean = true,
+    val is_deleted: Boolean = false
+)
+
+@Serializable
+data class ParentStaffSalaryPaymentDto(
+    val id: String,
+    val parent_organization_id: String,
+    val active_session_id: String,
+    val staff_id: String,
+    val payment_date: String,
+    val amount_paid: Double = 0.0,
+    val payment_mode: String,
+    val cash_paid_by_user_id: String? = null,
+    val cheque_number: String? = null,
+    val cheque_date: String? = null,
+    val cheque_bank_name: String? = null,
+    val online_transaction_id: String? = null,
+    val online_payment_app: String? = null,
+    val remarks: String? = null,
+    val is_active: Boolean = true,
+    val is_deleted: Boolean = false
+)
+
+@Serializable
+data class ParentStaffBusEnrollmentDto(
+    val id: String,
+    val parent_organization_id: String,
+    val organization_id: String,
+    val active_session_id: String,
+    val staff_id: String,
+    val bus_id: String,
+    val joining_date: String,
+    val monthly_fare: Double = 0.0,
+    val auto_deduct_from_salary: Boolean = true,
+    val is_active: Boolean = true,
+    val is_deleted: Boolean = false
+)
+
+@Serializable
+data class ParentStaffBusFareDto(
+    val id: String,
+    val parent_organization_id: String,
+    val active_session_id: String,
+    val staff_id: String,
+    val bus_id: String,
+    val fare_amount: Double = 0.0,
+    val is_active: Boolean = true,
+    val is_deleted: Boolean = false
 )
 
 @Serializable

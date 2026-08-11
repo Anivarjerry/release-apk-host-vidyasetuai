@@ -44,11 +44,18 @@ object LogoutManager {
 
                 // 3. Clear Supabase client cache/session
                 try {
-                    SupabaseClient.client.auth.signOut()
-                    Log.d(tag, "Successfully signed out of Supabase Auth")
+                    val trustedAccounts = sessionManager.getTrustedAccounts()
+                    if (trustedAccounts.isNotEmpty()) {
+                        SupabaseClient.client.auth.signOut(scope = io.github.jan.supabase.auth.SignOutScope.LOCAL)
+                        Log.d(tag, "Successfully signed out locally on Supabase (Trusted Device)")
+                    } else {
+                        SupabaseClient.client.auth.signOut()
+                        Log.d(tag, "Successfully signed out of Supabase Auth")
+                    }
                 } catch (e: Exception) {
                     Log.e(tag, "Supabase signOut failed: ${e.message}")
                 }
+
 
                 // 4. Clear all local Room Database tables
                 try {

@@ -115,6 +115,15 @@ class LocationTrackingService : Service() {
         val notification = createNotification()
         startForeground(NOTIFICATION_ID, notification)
 
+        // Ensure proactive token refresh is active during location tracking
+        try {
+            com.vidyasetuai.core.auth.AuthManager.startProactiveTokenRefresh(
+                com.vidyasetuai.core.auth.SessionManager(applicationContext)
+            )
+        } catch (e: Exception) {
+            Log.e("LocationTrackingService", "Failed to start proactive token refresh: ${e.message}")
+        }
+
         // Try to obtain the last known location and upload it immediately
         currentBestLocation = getLastKnownLocation()
         currentBestLocation?.let {

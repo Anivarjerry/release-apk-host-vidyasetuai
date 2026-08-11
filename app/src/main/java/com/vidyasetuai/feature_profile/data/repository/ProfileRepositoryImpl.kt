@@ -13,7 +13,8 @@ import kotlinx.coroutines.flow.map
 
 class ProfileRepositoryImpl(
     private val localDataSource: ProfileLocalDataSource,
-    private val remoteDataSource: ProfileRemoteDataSource
+    private val remoteDataSource: ProfileRemoteDataSource,
+    private val context: android.content.Context? = null
 ) : ProfileRepository {
 
     override fun getProfileFlow(userId: String): Flow<UserProfile?> {
@@ -22,12 +23,38 @@ class ProfileRepositoryImpl(
 
     override suspend fun syncProfile(userId: String): Result<Unit> {
         return runCatching {
+            val existingLocalProfile = localDataSource.getProfile(userId)
             val remoteProfileDto = remoteDataSource.getProfile(userId)
             val inspiringCount = remoteDataSource.getInspiringCount(userId)
             val inspiredCount = remoteDataSource.getInspiredCount(userId)
+
+            var profileLocalPath = existingLocalProfile?.profilePictureLocalPath
+            var coverLocalPath = existingLocalProfile?.coverPhotoLocalPath
+
+            val ctx = context
+            if (ctx != null) {
+                val remoteProfileUrl = remoteProfileDto.profile_picture_url
+                if (!remoteProfileUrl.isNullOrBlank() && (profileLocalPath == null || !java.io.File(profileLocalPath).exists())) {
+                    val cached = com.vidyasetuai.feature_profile.data.local.util.ProfileLocalCacheManager.cacheImageFromUrl(
+                        ctx, remoteProfileUrl, "profile_${userId}.jpg"
+                    )
+                    if (cached != null) profileLocalPath = cached
+                }
+
+                val remoteCoverUrl = remoteProfileDto.cover_photo_url
+                if (!remoteCoverUrl.isNullOrBlank() && (coverLocalPath == null || !java.io.File(coverLocalPath).exists())) {
+                    val cached = com.vidyasetuai.feature_profile.data.local.util.ProfileLocalCacheManager.cacheImageFromUrl(
+                        ctx, remoteCoverUrl, "cover_${userId}.jpg"
+                    )
+                    if (cached != null) coverLocalPath = cached
+                }
+            }
+
             val entity = remoteProfileDto.toEntity().copy(
                 totalInspiringCount = inspiredCount,
-                totalInspiredCount = inspiringCount
+                totalInspiredCount = inspiringCount,
+                profilePictureLocalPath = profileLocalPath,
+                coverPhotoLocalPath = coverLocalPath
             )
             localDataSource.saveProfile(entity)
         }.onFailure { e ->

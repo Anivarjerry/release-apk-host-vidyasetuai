@@ -18,8 +18,16 @@ data class QuickDto(
 
 @Serializable
 data class QuickHelpfulDto(
-    val id: String,
+    val id: String = "",
     val quick_id: String,
     val user_id: String,
-    val created_at: String
+    val created_at: String = ""
+)
+
+@Serializable
+data class QuickViewDto(
+    val id: String = "",
+    val quick_id: String,
+    val user_id: String,
+    val created_at: String = ""
 )

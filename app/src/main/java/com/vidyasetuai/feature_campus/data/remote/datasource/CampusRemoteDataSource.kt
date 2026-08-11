@@ -355,7 +355,11 @@ class CampusRemoteDataSource {
                 }
             }
         }
-        channel.subscribe()
+        try {
+            channel.subscribe()
+        } catch (e: Exception) {
+            android.util.Log.w("CampusRemoteDS", "Silent Realtime channel subscribe catch: ${e.message}")
+        }
         awaitClose {
             job.cancel()
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
@@ -365,6 +369,33 @@ class CampusRemoteDataSource {
                     // Ignore
                 }
             }
+        }
+    }
+
+    private var lastReadRoomId: String? = null
+    private var lastReadTimestamp: Long = 0L
+
+    suspend fun markRoomMessagesAsReadRemote(roomId: String, readerUserId: String) {
+        val now = System.currentTimeMillis()
+        if (lastReadRoomId == roomId && (now - lastReadTimestamp) < 5000L) {
+            return
+        }
+        lastReadRoomId = roomId
+        lastReadTimestamp = now
+
+        try {
+            android.util.Log.d("CampusRemoteDS", "Updating remote messages status to 'read' for room $roomId by user $readerUserId")
+            SupabaseClient.client.from("private_messages").update(
+                buildMap { put("status", "read") }
+            ) {
+                filter {
+                    eq("room_id", roomId)
+                    neq("sender_id", readerUserId)
+                    neq("status", "read")
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("CampusRemoteDS", "Error marking messages read on remote: ${e.message}", e)
         }
     }
 }

@@ -34,6 +34,7 @@ interface InstitutionRepository {
     suspend fun getLeaveQuotas(staffId: String): Result<Double>
     suspend fun getStaffLeaveQuotaAndRemaining(userId: String, parentOrgId: String, forceRefresh: Boolean = false): Result<Pair<Double, Double>>
     suspend fun getLeaves(userId: String, role: String, forceRefresh: Boolean = false): Result<List<Leave>>
+    suspend fun updateLeaveStatus(leaveId: String, status: String, remarks: String?, actionBy: String): Result<Unit>
     suspend fun syncLeavesOffline(): Result<Unit>
     
     // Fee Payments & Receipts
@@ -51,6 +52,7 @@ interface InstitutionRepository {
     ): Result<Unit>
 
     suspend fun getStudentAttendance(studentIds: List<String>, forceRefresh: Boolean = false): Result<List<StudentAttendance>>
+    suspend fun insertStudentFeePayment(payment: com.vidyasetuai.feature_institution.data.local.entity.LocalStudentFeePaymentEntity): Result<Unit>
     suspend fun getStudentBusAssignments(studentIds: List<String>, forceRefresh: Boolean = false): Result<List<StudentBusAssignment>>
     suspend fun getBusLiveLocation(busId: String): Result<BusLiveLocation?>
     suspend fun getBusRoute(busId: String, forceRefresh: Boolean = false): Result<List<BusRouteStop>>
@@ -73,10 +75,12 @@ interface InstitutionRepository {
     // --- Offline Sync & Search Support ---
     suspend fun syncWorkspaceData(userId: String, workspace: Workspace, sessionId: String): Result<Unit>
     suspend fun clearWorkspaceSpecificData(): Result<Unit>
+    suspend fun getStaffAudioBeacon(staffId: String): Result<String?>
     suspend fun searchStudentsOffline(query: String, classFilterName: String?, sectionFilterName: String?): Result<List<StudentSearchResult>>
     suspend fun getLocalStudentById(studentId: String): Result<com.vidyasetuai.feature_institution.data.local.entity.LocalStudentEntity?>
     suspend fun getOfflineStaff(parentOrgId: String): Result<List<com.vidyasetuai.feature_institution.data.local.entity.LocalParentStaffEntity>>
     suspend fun syncStudentAdditionalFees(studentId: String): Result<List<com.vidyasetuai.feature_institution.data.local.entity.LocalStudentAdditionalFeeEntity>>
+    suspend fun submitAdditionalFee(fee: com.vidyasetuai.feature_institution.data.local.entity.LocalStudentAdditionalFeeEntity): Result<Unit>
     suspend fun syncStudentProfileDetails(studentId: String): Result<com.vidyasetuai.feature_institution.data.local.entity.LocalStudentEntity?>
 
     // --- Driver Bus Trip & Attendance Sync Support ---
@@ -107,6 +111,35 @@ interface InstitutionRepository {
         userId: String
     ): Result<Unit>
     suspend fun getStudentLinkByUserId(userId: String): Result<com.vidyasetuai.feature_institution.data.local.entity.LocalStudentUserLinkEntity?>
+
+    // --- Staff Salary & Payout Management ---
+    suspend fun getStaffSalaryOverviews(parentOrgId: String, month: Int, year: Int): Result<List<com.vidyasetuai.feature_institution.domain.model.StaffSalaryOverview>>
+    suspend fun recordStaffSalaryPayment(
+        parentOrgId: String,
+        sessionId: String,
+        staffId: String,
+        amountPaid: Double,
+        paymentMode: String,
+        paymentDate: String,
+        chequeNumber: String? = null,
+        chequeDate: String? = null,
+        chequeBankName: String? = null,
+        onlineTransactionId: String? = null,
+        onlinePaymentApp: String? = null,
+        remarks: String? = null,
+        userId: String
+    ): Result<Unit>
+    suspend fun setStaffBaseSalary(
+        parentOrgId: String,
+        sessionId: String,
+        staffId: String,
+        monthlySalary: Double,
+        bankName: String? = null,
+        accountNumber: String? = null,
+        ifscCode: String? = null,
+        upiId: String? = null,
+        userId: String
+    ): Result<Unit>
 
     // --- Calendar, Staff Attendance, and Exams Support ---
     suspend fun getCalendarEvents(parentOrgId: String, sessionId: String, forceRefresh: Boolean = false): Result<List<CalendarEvent>>

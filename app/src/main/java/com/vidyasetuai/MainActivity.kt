@@ -1,39 +1,50 @@
 package com.vidyasetuai
 
+import android.content.Intent
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import kotlinx.coroutines.launch
-import com.vidyasetuai.core.ui.components.DashboardScreen
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.core.splashscreen.SplashScreenViewProvider
+import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.vidyasetuai.core.auth.AuthManager
+import com.vidyasetuai.core.auth.PermissionManager
 import com.vidyasetuai.core.auth.SessionManager
+import com.vidyasetuai.core.security.AppSecurityManager
+import com.vidyasetuai.core.ui.components.DashboardScreen
 import com.vidyasetuai.core.ui.theme.VidyaStuTheme
 import com.vidyasetuai.feature_auth.data.repository.AuthRepositoryImpl
 import com.vidyasetuai.feature_auth.presentation.screen.LoginScreen
-import android.content.Intent
 import com.vidyasetuai.feature_auth.presentation.screen.SignUpScreen
-import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import androidx.core.splashscreen.SplashScreenViewProvider
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
-class MainActivity : ComponentActivity() {
-    private val navigateToFlow = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+class MainActivity : FragmentActivity() {
+    private val navigateToFlow = MutableStateFlow<String?>(null)
+    private val targetRoomIdFlow = MutableStateFlow<String?>(null)
+    private val targetPeerUserIdFlow = MutableStateFlow<String?>(null)
     private var isAppReady = false
 
     override fun onNewIntent(intent: Intent) {
@@ -42,10 +53,18 @@ class MainActivity : ComponentActivity() {
         val dest = intent.getStringExtra("NAVIGATE_TO")
         if (dest != null) {
             navigateToFlow.value = dest
+            targetRoomIdFlow.value = intent.getStringExtra("TARGET_ROOM_ID")
+            targetPeerUserIdFlow.value = intent.getStringExtra("TARGET_PEER_USER_ID")
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Protect Recent Apps thumbnail and block screenshots globally across the app
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE
+        )
+
         val splashScreen = installSplashScreen()
         
         if (!isTaskRoot
@@ -59,6 +78,8 @@ class MainActivity : ComponentActivity() {
         val dest = intent?.getStringExtra("NAVIGATE_TO")
         if (dest != null) {
             navigateToFlow.value = dest
+            targetRoomIdFlow.value = intent.getStringExtra("TARGET_ROOM_ID")
+            targetPeerUserIdFlow.value = intent.getStringExtra("TARGET_PEER_USER_ID")
         }
         super.onCreate(savedInstanceState)
         
@@ -91,6 +112,14 @@ class MainActivity : ComponentActivity() {
         }
         
         enableEdgeToEdge()
+        
+        com.vidyasetuai.core.notification.handler.ChatNotificationHandler.initLifecycle(application)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
+            }
+        }
+
         setContent {
             val context = LocalContext.current
             val prefs = remember { context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE) }
@@ -100,7 +129,7 @@ class MainActivity : ComponentActivity() {
             val isDarkTheme = when (appTheme) {
                 "dark" -> true
                 "light" -> false
-                else -> androidx.compose.foundation.isSystemInDarkTheme()
+                else -> isSystemInDarkTheme()
             }
 
             LaunchedEffect(isDarkTheme) {
@@ -131,6 +160,7 @@ class MainActivity : ComponentActivity() {
             VidyaStuTheme(darkTheme = isDarkTheme) {
                 val sessionManager = remember { SessionManager(context) }
                 val authRepository = remember { AuthRepositoryImpl(sessionManager) }
+                val trustedDeviceRepository = remember { com.vidyasetuai.feature_auth.data.repository.TrustedDeviceRepository(sessionManager) }
                 
                 val versionRemoteDataSource = remember { com.vidyasetuai.core.update.data.remote.datasource.VersionRemoteDataSource() }
                 val versionRepository = remember { com.vidyasetuai.core.update.data.repository.VersionRepositoryImpl(versionRemoteDataSource) }
@@ -150,7 +180,7 @@ class MainActivity : ComponentActivity() {
                     scope.launch {
                         // 1. Version check with 2.5 second timeout
                         val checkResult = try {
-                            kotlinx.coroutines.withTimeout(2500L) {
+                            withTimeout(2500L) {
                                 checkAppVersionUseCase()
                             }
                         } catch (e: Exception) {
@@ -170,7 +200,7 @@ class MainActivity : ComponentActivity() {
                                 updateType = com.vidyasetuai.core.update.domain.model.UpdateType.OPTIONAL
                             }
                             if (hasLocalSession) {
-                                val permissionsGranted = com.vidyasetuai.core.auth.PermissionManager.checkAllPermissions(context)
+                                val permissionsGranted = PermissionManager.checkAllPermissions(context)
                                 if (permissionsGranted) {
                                     targetScreen = "home"
                                 } else {
@@ -178,7 +208,7 @@ class MainActivity : ComponentActivity() {
                                 }
                                 // Trigger background session validation online
                                 scope.launch {
-                                    com.vidyasetuai.core.auth.AuthManager.checkSessionOnline(context, sessionManager, authRepository)
+                                    AuthManager.checkSessionOnline(context, sessionManager, authRepository)
                                 }
                             } else {
                                 targetScreen = "login"
@@ -196,23 +226,31 @@ class MainActivity : ComponentActivity() {
                 }
 
                 // Observe session validity flow and redirect to login if invalidated
-                val isSessionValid by com.vidyasetuai.core.auth.AuthManager.isSessionValid.collectAsState()
+                val isSessionValid by AuthManager.isSessionValid.collectAsState()
                 LaunchedEffect(isSessionValid) {
                     if (!isSessionValid) {
                         currentScreen = "login"
                     }
                 }
 
-                // Monitor app lifecycle to force Permission Gate if permissions are revoked while app is minimized
-                val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-                androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
-                    val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-                        if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                val securityManager = remember { AppSecurityManager(context) }
+                var isAppLocked by remember { mutableStateOf(securityManager.shouldTriggerLock() && sessionManager.hasActiveSession()) }
+
+                // Monitor app lifecycle to track background time & trigger lock if timeout elapsed
+                val lifecycleOwner = LocalLifecycleOwner.current
+                DisposableEffect(lifecycleOwner) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_STOP) {
+                            securityManager.recordBackgroundTimestamp()
+                        } else if (event == Lifecycle.Event.ON_RESUME) {
                             if (currentScreen == "home" && sessionManager.hasActiveSession()) {
-                                val permissionsGranted = com.vidyasetuai.core.auth.PermissionManager.checkAllPermissions(context)
+                                val permissionsGranted = PermissionManager.checkAllPermissions(context)
                                 if (!permissionsGranted) {
                                     currentScreen = "permission_gate"
                                 }
+                            }
+                            if (sessionManager.hasActiveSession() && securityManager.shouldTriggerLock()) {
+                                isAppLocked = true
                             }
                         }
                     }
@@ -222,106 +260,142 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                when (currentScreen) {
-                    "" -> {
-                        // Empty background container to wait for system splash transition
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(if (isDarkTheme) Color(0xFF121212) else Color.White)
-                        )
-                    }
-                    "update_screen" -> {
-                        if (latestVersionInfo != null) {
-                            com.vidyasetuai.core.update.presentation.components.UpdateScreen(
-                                info = latestVersionInfo!!,
-                                onNavigateBack = {}
+                Box(modifier = Modifier.fillMaxSize()) {
+                    when (currentScreen) {
+                        "" -> {
+                            // Empty background container to wait for system splash transition
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(if (isDarkTheme) Color(0xFF121212) else Color.White)
                             )
                         }
-                    }
-                    "login" -> LoginScreen(
-                        authRepository = authRepository,
-                        onNavigateToSignUp = { currentScreen = "signup" },
-                        onLoginSuccess = {
-                            com.vidyasetuai.core.auth.AuthManager.resetSessionState()
-                            
-                            // Check permissions immediately on login success
-                            val permissionsGranted = com.vidyasetuai.core.auth.PermissionManager.checkAllPermissions(context)
-                            if (permissionsGranted) {
-                                currentScreen = "home"
-                            } else {
-                                currentScreen = "permission_gate"
-                            }
-                            
-                            // Sync FCM token immediately on login success in background
-                            scope.launch {
-                                com.vidyasetuai.core.auth.AuthManager.syncFcmToken(context, sessionManager)
-                            }
-                        }
-                    )
-                    "signup" -> {
-                        androidx.activity.compose.BackHandler {
-                            currentScreen = "login"
-                        }
-                        SignUpScreen(
-                            authRepository = authRepository,
-                            onNavigateToLogin = { currentScreen = "login" },
-                            onSignUpSuccess = {
-                                currentScreen = "login"
-                            }
-                        )
-                    }
-                    "permission_gate" -> {
-                        com.vidyasetuai.core.ui.components.PermissionGateScreen(
-                            onAllPermissionsGranted = {
-                                currentScreen = "home"
-                            }
-                        )
-                    }
-                    "home" -> {
-                        // Reset session state flow to valid & launch periodic background verification
-                        LaunchedEffect(Unit) {
-                            com.vidyasetuai.core.auth.AuthManager.resetSessionState()
-                            
-                            // Immediately run online validation & permission validation in the background
-                            scope.launch {
-                                com.vidyasetuai.core.auth.AuthManager.checkSessionOnline(context, sessionManager, authRepository)
-                                val permissionsGranted = com.vidyasetuai.core.auth.PermissionManager.checkAllPermissions(context)
-                                if (!permissionsGranted && com.vidyasetuai.core.auth.AuthManager.isSessionValid.value) {
-                                    currentScreen = "permission_gate"
-                                }
-                            }
-                            
-                            scope.launch {
-                                while (true) {
-                                    kotlinx.coroutines.delay(60000L) // Check every 60 seconds
-                                    com.vidyasetuai.core.auth.AuthManager.checkSessionOnline(context, sessionManager, authRepository)
-                                }
-                            }
-                        }
-
-                        val navTarget by navigateToFlow.collectAsState()
-
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            DashboardScreen(
-                                currentTheme = appTheme,
-                                onThemeChange = { appTheme = it },
-                                currentLanguage = appLanguage,
-                                onLanguageChange = { appLanguage = it },
-                                navTarget = navTarget,
-                                onNavTargetHandled = { navigateToFlow.value = null }
-                            )
-                            
-                            if (updateType == com.vidyasetuai.core.update.domain.model.UpdateType.OPTIONAL && latestVersionInfo != null) {
-                                com.vidyasetuai.core.update.presentation.components.OptionalUpdateDialog(
+                        "update_screen" -> {
+                            if (latestVersionInfo != null) {
+                                com.vidyasetuai.core.update.presentation.components.UpdateScreen(
                                     info = latestVersionInfo!!,
-                                    onDismiss = { updateType = com.vidyasetuai.core.update.domain.model.UpdateType.NONE }
+                                    onNavigateBack = {}
                                 )
                             }
                         }
+                        "login" -> LoginScreen(
+                            authRepository = authRepository,
+                            sessionManager = sessionManager,
+                            trustedDeviceRepository = trustedDeviceRepository,
+                            onNavigateToSignUp = { currentScreen = "signup" },
+                            onLoginSuccess = {
+                                AuthManager.resetSessionState()
+                                
+                                // Check permissions immediately on login success
+                                val permissionsGranted = PermissionManager.checkAllPermissions(context)
+                                if (permissionsGranted) {
+                                    currentScreen = "home"
+                                } else {
+                                    currentScreen = "permission_gate"
+                                }
+                                
+                                // Sync FCM token immediately on login success in background
+                                scope.launch {
+                                    AuthManager.syncFcmToken(context, sessionManager)
+                                }
+                            }
+                        )
+                        "signup" -> {
+                            androidx.activity.compose.BackHandler {
+                                currentScreen = "login"
+                            }
+                            SignUpScreen(
+                                authRepository = authRepository,
+                                onNavigateToLogin = { currentScreen = "login" },
+                                onSignUpSuccess = {
+                                    currentScreen = "login"
+                                }
+                            )
+                        }
+                        "permission_gate" -> {
+                            com.vidyasetuai.core.ui.components.PermissionGateScreen(
+                                onAllPermissionsGranted = {
+                                    currentScreen = "home"
+                                }
+                            )
+                        }
+                        "home" -> {
+                            // Reset session state flow to valid & launch periodic background verification
+                            LaunchedEffect(Unit) {
+                                AuthManager.resetSessionState()
+                                
+                                // Immediately run online validation & permission validation in the background
+                                scope.launch {
+                                    AuthManager.checkSessionOnline(context, sessionManager, authRepository)
+                                    val permissionsGranted = PermissionManager.checkAllPermissions(context)
+                                    if (!permissionsGranted && AuthManager.isSessionValid.value) {
+                                        currentScreen = "permission_gate"
+                                    }
+                                }
+                                
+                                scope.launch {
+                                    while (true) {
+                                        delay(60000L) // Check every 60 seconds
+                                        AuthManager.checkSessionOnline(context, sessionManager, authRepository)
+                                    }
+                                }
+                            }
+
+                            val navTarget by navigateToFlow.collectAsState()
+                            val targetRoomId by targetRoomIdFlow.collectAsState()
+                            val targetPeerUserId by targetPeerUserIdFlow.collectAsState()
+
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                DashboardScreen(
+                                    currentTheme = appTheme,
+                                    onThemeChange = { appTheme = it },
+                                    currentLanguage = appLanguage,
+                                    onLanguageChange = { appLanguage = it },
+                                    navTarget = navTarget,
+                                    targetRoomId = targetRoomId,
+                                    targetPeerUserId = targetPeerUserId,
+                                    onNavTargetHandled = { 
+                                        navigateToFlow.value = null 
+                                        targetRoomIdFlow.value = null
+                                        targetPeerUserIdFlow.value = null
+                                    }
+                                )
+                                
+                                if (updateType == com.vidyasetuai.core.update.domain.model.UpdateType.OPTIONAL && latestVersionInfo != null) {
+                                    com.vidyasetuai.core.update.presentation.components.OptionalUpdateDialog(
+                                        info = latestVersionInfo!!,
+                                        onDismiss = { updateType = com.vidyasetuai.core.update.domain.model.UpdateType.NONE }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    if (isAppLocked && sessionManager.hasActiveSession()) {
+                        com.vidyasetuai.feature_institution.presentation.screen.subscreens.AppLockOverlayScreen(
+                            isHindi = true,
+                            isDark = isDarkTheme,
+                            onUnlocked = { isAppLocked = false }
+                        )
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Call this composable on any specific screen where screenshots should be temporarily allowed.
+ * Automatically restores FLAG_SECURE protection when leaving that screen.
+ */
+@Composable
+fun AllowScreenshotsForThisScreen() {
+    val context = LocalContext.current
+    val activity = context as? FragmentActivity
+    DisposableEffect(Unit) {
+        activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose {
+            activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
     }
 }

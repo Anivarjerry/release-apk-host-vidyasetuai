@@ -124,6 +124,7 @@ enum class InstitutionFeature {
     // Student Registry
     STUDENT_REGISTRY_VIEW,
     STUDENT_DIRECTORY,
+    STAFF_DIRECTORY,
     STUDENT_PROFILE,
     CHILD_PROFILES,
 

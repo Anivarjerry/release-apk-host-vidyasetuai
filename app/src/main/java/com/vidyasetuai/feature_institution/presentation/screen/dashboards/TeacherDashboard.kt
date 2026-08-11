@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.vidyasetuai.feature_institution.presentation.component.DashboardWelcomeCard
 import com.vidyasetuai.feature_institution.presentation.component.DashboardTodayLogsCard
+import com.vidyasetuai.feature_institution.presentation.component.DashboardSalaryOverviewCard
 import com.vidyasetuai.feature_institution.presentation.state.InstitutionUiState
 import com.vidyasetuai.feature_institution.presentation.viewmodel.InstitutionViewModel
 
@@ -60,13 +61,13 @@ fun TeacherDashboard(
             onViewAllClick = onNavigateToAllLogs
         )
         
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
         
-        Box(
-            modifier = Modifier.padding(vertical = 16.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(text = if (isHindi) "शिक्षक डैशबोर्ड" else "Teacher Dashboard")
-        }
+        DashboardSalaryOverviewCard(
+            state = state,
+            isHindi = isHindi,
+            isDark = isDark,
+            onViewSalaryClick = onNavigateToSalary
+        )
     }
 }

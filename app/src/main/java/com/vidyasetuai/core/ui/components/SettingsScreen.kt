@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composables.icons.lucide.*
 import com.vidyasetuai.core.ui.colors.AppColors
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(
@@ -28,6 +29,8 @@ fun SettingsScreen(
     currentLanguage: String,
     onLanguageChange: (String) -> Unit,
     onBack: () -> Unit,
+    onOpenTournament: (() -> Unit)? = null,
+    initialTarget: String? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -45,8 +48,12 @@ fun SettingsScreen(
     }
     val versionName = packageInfo?.versionName ?: "1.8"
 
-    var showThemeDialog by remember { mutableStateOf(false) }
-    var showLanguageDialog by remember { mutableStateOf(false) }
+    var showThemeDialog by remember(initialTarget) { mutableStateOf(initialTarget == "theme") }
+    var showLanguageDialog by remember(initialTarget) { mutableStateOf(initialTarget == "language") }
+    var showManageTrustedDevices by remember { mutableStateOf(false) }
+    var showLogoutConfirmationDialog by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val trustedDeviceRepository = remember { com.vidyasetuai.feature_auth.data.repository.TrustedDeviceRepository(sessionManager) }
 
     val currentThemeLabel = when (currentTheme) {
         "light" -> if (isHindi) "लाइट थीम (Light Theme)" else "Light Theme"
@@ -61,9 +68,16 @@ fun SettingsScreen(
 
     var showAboutScreen by remember { mutableStateOf(false) }
     var showTermsScreen by remember { mutableStateOf(false) }
-    var showHelpScreen by remember { mutableStateOf(false) }
+    var showHelpScreen by remember(initialTarget) { mutableStateOf(initialTarget == "help") }
+    var showSecurityScreen by remember(initialTarget) { mutableStateOf(initialTarget == "app_lock" || initialTarget == "security") }
 
-    if (showAboutScreen) {
+    if (showSecurityScreen) {
+        com.vidyasetuai.feature_institution.presentation.screen.subscreens.AppSecuritySettingsSubScreen(
+            isHindi = isHindi,
+            isDark = currentTheme == "dark",
+            onBack = { showSecurityScreen = false }
+        )
+    } else if (showAboutScreen) {
         AboutScreen(onBack = { showAboutScreen = false })
     } else if (showTermsScreen) {
         TermsScreen(onBack = { showTermsScreen = false })
@@ -101,12 +115,6 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onBackground
                         )
                     }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(0.5.dp)
-                            .background(MaterialTheme.colorScheme.outlineVariant)
-                    )
                 }
             }
         ) { innerPadding ->
@@ -140,6 +148,37 @@ fun SettingsScreen(
                     title = if (isHindi) "भाषा चुनें" else "Choose Language",
                     subtitle = currentLanguageLabel,
                     onClick = { showLanguageDialog = true }
+                )
+
+                SettingsRow(
+                    icon = Lucide.Lock,
+                    title = if (isHindi) "ऐप लॉक और सुरक्षा" else "App Lock & Security",
+                    subtitle = if (isHindi) "फिंगरप्रिंट और PIN से ऐप सुरक्षित करें" else "Protect app with Fingerprint & PIN",
+                    onClick = { showSecurityScreen = true }
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(0.5.dp)
+                        .background(MaterialTheme.colorScheme.outlineVariant)
+                        .padding(vertical = 8.dp)
+                )
+
+                // Section: Upcoming Features Header
+                Text(
+                    text = if (isHindi) "आगामी फ़ीचर्स" else "Upcoming Features",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.EmeraldGreen,
+                    modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
+                )
+
+                SettingsRow(
+                    icon = Lucide.Trophy,
+                    title = if (isHindi) "टूर्नामेंट अरीना (कमिंग सून)" else "Tournament Arena (Coming Soon)",
+                    subtitle = if (isHindi) "क्विज़, चैलेंजेस और लीडरबोर्ड का प्रीव्यू देखें" else "Play, Learn & Level Up challenges preview",
+                    onClick = { onOpenTournament?.invoke() }
                 )
 
                 Box(
@@ -241,6 +280,13 @@ fun SettingsScreen(
                 )
 
                 SettingsRow(
+                    icon = Lucide.Lock,
+                    title = if (isHindi) "भरोसेमंद डिवाइस और सुरक्षा" else "Trusted Devices & Security",
+                    subtitle = if (isHindi) "बायोमेट्रिक क्विक लॉगिन प्रबंधित करें" else "Manage Biometric Quick Login & Keys",
+                    onClick = { showManageTrustedDevices = true }
+                )
+
+                SettingsRow(
                     icon = Lucide.Sparkles,
                     title = if (isHindi) "हमारे बारे में" else "About Us",
                     subtitle = "v$versionName (${if (isHindi) "अप-टू-डेट" else "Up to date"})",
@@ -250,9 +296,9 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = Lucide.LogOut,
                     title = if (isHindi) "लॉग आउट" else "Log Out",
-                    subtitle = if (isHindi) "खाता लॉग आउट करें और सभी डेटा साफ़ करें" else "Log out and clear all data",
+                    subtitle = if (isHindi) "खाता लॉग आउट करें" else "Log out of active session",
                     onClick = {
-                        com.vidyasetuai.core.auth.AuthManager.logoutAndClearData(context, sessionManager)
+                        showLogoutConfirmationDialog = true
                     }
                 )
             }
@@ -383,6 +429,35 @@ fun SettingsScreen(
             },
             containerColor = MaterialTheme.colorScheme.surface,
             shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    if (showManageTrustedDevices) {
+        com.vidyasetuai.feature_auth.presentation.screen.ManageTrustedDevicesScreen(
+            sessionManager = sessionManager,
+            trustedDeviceRepository = trustedDeviceRepository,
+            onNavigateBack = { showManageTrustedDevices = false }
+        )
+    }
+
+    if (showLogoutConfirmationDialog) {
+        com.vidyasetuai.core.ui.components.LogoutConfirmationDialog(
+            onLogoutKeepTrusted = {
+                showLogoutConfirmationDialog = false
+                com.vidyasetuai.core.auth.AuthManager.logoutAndClearData(context, sessionManager)
+            },
+            onLogoutRemoveTrusted = {
+                showLogoutConfirmationDialog = false
+                scope.launch {
+                    val userId = sessionManager.getUserId() ?: ""
+                    val email = sessionManager.getUserEmail() ?: ""
+                    if (userId.isNotEmpty()) {
+                        trustedDeviceRepository.revokeDeviceTrust(userId, email)
+                    }
+                    com.vidyasetuai.core.auth.AuthManager.logoutAndClearData(context, sessionManager)
+                }
+            },
+            onDismiss = { showLogoutConfirmationDialog = false }
         )
     }
 }

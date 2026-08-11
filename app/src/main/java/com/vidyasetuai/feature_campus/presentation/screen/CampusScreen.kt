@@ -1,252 +1,194 @@
 package com.vidyasetuai.feature_campus.presentation.screen
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.composables.icons.lucide.*
 import com.vidyasetuai.core.ui.colors.AppColors
-import com.vidyasetuai.core.ui.components.PulsingGreenDot
-import com.vidyasetuai.feature_campus.domain.model.CampusRoom
-import com.vidyasetuai.feature_campus.presentation.viewmodel.CampusViewModel
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
-import com.vidyasetuai.feature_campus.presentation.event.CampusEvent
+import com.vidyasetuai.feature_campus.domain.model.PrivateRoom
+import com.vidyasetuai.feature_campus.presentation.state.CampusUiState
+import com.vidyasetuai.feature_profile.domain.model.UserProfile
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CampusScreen(
-    viewModel: CampusViewModel,
-    userId: String,
-    currentLanguage: String,
-    currentTheme: String,
-    onRoomClick: (CampusRoom) -> Unit,
-    onPrivateChatClick: (com.vidyasetuai.feature_profile.domain.model.UserProfile) -> Unit,
-    modifier: Modifier = Modifier
+    state: CampusUiState,
+    isHindi: Boolean = false,
+    onPrivateChatClick: (UserProfile) -> Unit,
+    onOpenSearchUserSubScreen: () -> Unit
 ) {
-    val isHindi = currentLanguage == "hi"
-    val isSystemDark = isSystemInDarkTheme()
-    val isDark = when (currentTheme) {
-        "dark" -> true
-        "light" -> false
-        else -> isSystemDark
-    }
-    val state by viewModel.state.collectAsState()
-
-    LaunchedEffect(state.activeTab, userId) {
-        if (state.activeTab == "private" && userId.isNotEmpty()) {
-            viewModel.onEvent(CampusEvent.LoadMutualInspirations(userId))
-        } else {
-            viewModel.onEvent(CampusEvent.LoadRooms)
-        }
-    }
+    val isDark = isSystemInDarkTheme()
+    var isSearchExpanded by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
 
     Column(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(horizontal = 16.dp)
     ) {
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Segmented Tabs
-        TabRow(
-            selectedTabIndex = if (state.activeTab == "global") 0 else 1,
-            containerColor = Color.Transparent,
-            contentColor = AppColors.EmeraldGreen,
-            indicator = { tabPositions ->
-                TabRowDefaults.Indicator(
-                    modifier = Modifier.tabIndicatorOffset(tabPositions[if (state.activeTab == "global") 0 else 1]),
-                    color = AppColors.EmeraldGreen
-                )
-            },
-            divider = {}
+        // Clean Full Width Search Bar (WhatsApp Style)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            Tab(
-                selected = state.activeTab == "global",
-                onClick = { viewModel.onEvent(CampusEvent.ToggleTab("global")) },
-                text = {
-                    Text(
-                        text = if (isHindi) "ग्लोबल कैंपस" else "Global Campus",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+                    .background(
+                        color = if (isDark) Color(0xFF1C1C1E) else Color(0xFFF2F2F7),
+                        shape = RoundedCornerShape(22.dp)
                     )
-                }
-            )
-            Tab(
-                selected = state.activeTab == "private",
-                onClick = { 
-                    viewModel.onEvent(CampusEvent.ToggleTab("private"))
-                    viewModel.onEvent(CampusEvent.LoadMutualInspirations(userId))
-                },
-                text = {
-                    Text(
-                        text = if (isHindi) "प्राइवेट कैंपस" else "Private Campus",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
-                    )
-                }
-            )
-        }
-
-        if (state.activeTab == "global") {
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Search Bar Mockup
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp),
-                color = if (isDark) Color(0xFF1C1C1E) else Color(0xFFF2F2F7)
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Lucide.Search,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (isHindi) "चर्चा कक्ष खोजें..." else "Search discussion rooms...",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Active header
-            Text(
-                text = if (isHindi) "सक्रिय चर्चा समूह" else "Active Discussion Channels",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                color = AppColors.EmeraldGreen
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            if (state.isLoadingRooms) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(color = AppColors.EmeraldGreen)
-                }
-            } else if (state.rooms.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = if (isHindi) "कोई चर्चा समूह उपलब्ध नहीं है।" else "No discussion channels available.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 14.sp
-                    )
-                }
-            } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(state.rooms) { room ->
-                        RoomCard(
-                            room = room,
-                            isHindi = isHindi,
-                            isDark = isDark,
-                            onClick = { onRoomClick(room) }
+                Icon(
+                    imageVector = Lucide.Search,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Box(modifier = Modifier.weight(1f)) {
+                    if (searchQuery.isEmpty()) {
+                        Text(
+                            text = if (isHindi) "कनेक्शन खोजें..." else "Search connections...",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        textStyle = TextStyle(
+                            color = MaterialTheme.colorScheme.onBackground,
+                            fontSize = 14.sp
+                        ),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(
+                        onClick = { searchQuery = "" },
+                        modifier = Modifier.size(22.dp)
+                    ) {
+                        Icon(
+                            imageVector = Lucide.X,
+                            contentDescription = "Clear",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Main Content List
+        if (state.isLoadingMutual) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = AppColors.EmeraldGreen)
+            }
+        } else if (state.mutualInspirations.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Lucide.Users,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(56.dp)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = if (isHindi) "कोई प्राइवेट कनेक्शन नहीं है" else "No Mutual Connections Yet",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = if (isHindi)
+                            "यूज़र्स को खोजें और Inspire करें। जब दोनों एक-दूसरे को Inspire करेंगे तो 1-on-1 चैट चालू हो जाएगी।"
+                        else
+                            "Search and inspire users. When both inspire each other, 1-on-1 encrypted chat will unlock.",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 24.dp)
+                    )
                 }
             }
         } else {
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text(
-                text = if (isHindi) "आपके इंस्पिरेशन्स (आपसी)" else "Your Inspirations (Mutual)",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                color = AppColors.EmeraldGreen
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            if (state.isLoadingMutual) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(color = AppColors.EmeraldGreen)
+            val filteredMutuals = state.mutualInspirations
+                .filter {
+                    val name = it.fullName ?: "${it.firstName ?: ""} ${it.lastName ?: ""}"
+                    name.contains(searchQuery, ignoreCase = true) || (it.username ?: "").contains(searchQuery, ignoreCase = true)
                 }
-            } else if (state.mutualInspirations.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(24.dp)
-                    ) {
-                        Icon(
-                            imageVector = Lucide.Users,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                            modifier = Modifier.size(64.dp)
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = if (isHindi) "कोई आपसी इंस्पिरेशन नहीं मिला।" else "No mutual inspirations found.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = if (isHindi)
-                                "प्राइवेट चैट शुरू करने के लिए दोनों यूज़र्स का एक-दूसरे से इंस्पायर्ड (फॉलो) होना ज़रूरी है।"
-                            else
-                                "To start a private chat, both users must be inspired by (follow) each other.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            fontSize = 12.sp,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            lineHeight = 16.sp
-                        )
+                .sortedWith(
+                    compareByDescending<UserProfile> { user ->
+                        val room = state.privateRooms.firstOrNull { r -> (r.user1Id == user.userId || r.user2Id == user.userId) }
+                        room?.unreadCount ?: 0
+                    }.thenByDescending { user ->
+                        val room = state.privateRooms.firstOrNull { r -> (r.user1Id == user.userId || r.user2Id == user.userId) }
+                        room?.lastMessageTime ?: ""
                     }
-                }
-            } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(state.mutualInspirations) { user ->
-                        MutualUserCard(
-                            user = user,
-                            isHindi = isHindi,
-                            isDark = isDark,
-                            onClick = {
-                                viewModel.onEvent(CampusEvent.OpenPrivateChat(user, userId))
-                                onPrivateChatClick(user)
-                            }
+                )
+
+            // WhatsApp-Style Full Width Connection List
+            LazyColumn(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                itemsIndexed(filteredMutuals) { index, user ->
+                    val room = state.privateRooms.firstOrNull { r ->
+                        (r.user1Id == user.userId || r.user2Id == user.userId)
+                    }
+
+                    WhatsAppUserItemRow(
+                        user = user,
+                        room = room,
+                        isHindi = isHindi,
+                        isDark = isDark,
+                        onClick = { onPrivateChatClick(user) }
+                    )
+                    
+                    if (index < filteredMutuals.size - 1) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 76.dp, end = 16.dp)
+                                .height(0.8.dp)
+                                .background(if (isDark) Color(0xFF2C2C2E) else Color(0xFFE2E8F0))
                         )
                     }
                 }
@@ -256,91 +198,84 @@ fun CampusScreen(
 }
 
 @Composable
-fun RoomCard(
-    room: CampusRoom,
+fun WhatsAppUserItemRow(
+    user: UserProfile,
+    room: PrivateRoom? = null,
     isHindi: Boolean,
     isDark: Boolean,
     onClick: () -> Unit
 ) {
-    val cardBg = if (isDark) Color(0xFF1C1C1E) else Color.White
-    val borderColor = if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E5EA)
-
-    // Assign appropriate icons based on room names
-    val icon = when {
-        room.name.contains("Global", ignoreCase = true) -> Lucide.Globe
-        room.name.contains("Study", ignoreCase = true) -> Lucide.BookOpen
-        else -> Lucide.MessageCircle
-    }
-
-    val name = room.name
-    val cooldownText = if (isHindi) {
-        " (${room.messageCooldownSeconds} सेकंड कूलडाउन)"
-    } else {
-        " (${room.messageCooldownSeconds}s cooldown)"
-    }
-    val desc = (room.description ?: "") + (if (room.messageCooldownSeconds > 0) cooldownText else "")
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(cardBg)
-            .border(1.dp, borderColor, RoundedCornerShape(12.dp))
-            .clickable { onClick() }
-            .padding(16.dp),
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Icon Container
+        // 50dp Large Profile Avatar
         Box(
             modifier = Modifier
-                .size(44.dp)
-                .background(
-                    color = AppColors.EmeraldGreen.copy(alpha = 0.12f),
-                    shape = CircleShape
-                ),
+                .size(50.dp)
+                .clip(CircleShape)
+                .background(AppColors.EmeraldGreen.copy(alpha = 0.14f)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = AppColors.EmeraldGreen,
-                modifier = Modifier.size(20.dp)
-            )
+            if (!user.profilePictureUrl.isNullOrEmpty()) {
+                AsyncImage(
+                    model = user.profilePictureUrl,
+                    contentDescription = "User Pic",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                val initial = if (!user.firstName.isNullOrEmpty()) user.firstName.take(1).uppercase() else "U"
+                Text(
+                    text = initial,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.EmeraldGreen
+                )
+            }
         }
 
         Spacer(modifier = Modifier.width(14.dp))
 
-        // Text details
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = name,
-                fontSize = 15.sp,
+                text = user.fullName ?: "${user.firstName ?: ""} ${user.lastName ?: ""}".trim(),
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
+                fontSize = 16.sp,
+                color = if (isDark) Color.White else Color(0xFF1C1C1E),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(modifier = Modifier.height(3.dp))
+            Spacer(modifier = Modifier.height(2.dp))
+            val subText = if (!room?.lastMessageText.isNullOrEmpty()) {
+                room!!.lastMessageText
+            } else if (!user.username.isNullOrEmpty()) {
+                "@${user.username}"
+            } else {
+                if (isHindi) "कोई संदेश नहीं" else "No messages yet"
+            }
             Text(
-                text = desc,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                lineHeight = 16.sp
+                text = subText!!,
+                fontSize = 13.sp,
+                color = if (room != null && room.unreadCount > 0) AppColors.EmeraldGreen else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                fontWeight = if (room != null && room.unreadCount > 0) FontWeight.Bold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Active members count indicators
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                PulsingGreenDot(modifier = Modifier.size(8.dp))
-                Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Lucide.Lock,
+                    contentDescription = null,
+                    tint = AppColors.EmeraldGreen,
+                    modifier = Modifier.size(11.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = if (isHindi) "लाइव" else "Live",
+                    text = if (isHindi) "एन्क्रिप्टेड 1-on-1 चैट" else "Encrypted 1-on-1 Chat",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = AppColors.EmeraldGreen
@@ -350,124 +285,56 @@ fun RoomCard(
 
         Spacer(modifier = Modifier.width(8.dp))
 
-        IconButton(
-            onClick = onClick,
-            modifier = Modifier
-                .size(26.dp)
-                .background(
-                    color = if (isDark) Color(0xFF2C2C2E) else Color(0xFFF2F2F7),
-                    shape = CircleShape
-                )
-        ) {
-            Icon(
-                imageVector = Lucide.ChevronRight,
-                contentDescription = "Join",
-                tint = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.size(12.dp)
-            )
-        }
-    }
-}
-
-@Composable
-fun MutualUserCard(
-    user: com.vidyasetuai.feature_profile.domain.model.UserProfile,
-    isHindi: Boolean,
-    isDark: Boolean,
-    onClick: () -> Unit
-) {
-    val cardBg = if (isDark) Color(0xFF1C1C1E) else Color.White
-    val borderColor = if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E5EA)
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(cardBg)
-            .border(1.dp, borderColor, RoundedCornerShape(12.dp))
-            .clickable { onClick() }
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(if (isDark) Color(0xFF2C2C2E) else Color(0xFFF2F2F7))
-        ) {
-            if (!user.profilePictureUrl.isNullOrEmpty()) {
-                coil.compose.AsyncImage(
-                    model = user.profilePictureUrl,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                )
-            } else {
-                Icon(
-                    imageVector = Lucide.User,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                    modifier = Modifier.size(24.dp).align(Alignment.Center)
-                )
+        Column(horizontalAlignment = Alignment.End) {
+            if (!room?.lastMessageTime.isNullOrEmpty()) {
+                val formattedTime = try {
+                    val inst = Instant.parse(room!!.lastMessageTime)
+                    val local = inst.atZone(ZoneId.systemDefault())
+                    local.format(DateTimeFormatter.ofPattern("hh:mm a"))
+                } catch (e: Exception) {
+                    ""
+                }
+                if (formattedTime.isNotEmpty()) {
+                    Text(
+                        text = formattedTime,
+                        fontSize = 11.sp,
+                        color = if ((room?.unreadCount ?: 0) > 0) AppColors.EmeraldGreen else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        fontWeight = if ((room?.unreadCount ?: 0) > 0) FontWeight.Bold else FontWeight.Normal
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
             }
-        }
 
-        Spacer(modifier = Modifier.width(12.dp))
-
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = user.fullName ?: user.username ?: "User",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (user.isVerified) {
-                    Spacer(modifier = Modifier.width(4.dp))
+            if (room != null && room.unreadCount > 0) {
+                Box(
+                    modifier = Modifier
+                        .background(AppColors.EmeraldGreen, CircleShape)
+                        .padding(horizontal = 7.dp, vertical = 2.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "${room.unreadCount}",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(AppColors.EmeraldGreen.copy(alpha = 0.14f)),
+                    contentAlignment = Alignment.Center
+                ) {
                     Icon(
-                        imageVector = Lucide.Check,
-                        contentDescription = "Verified",
+                        imageVector = Lucide.MessageCircle,
+                        contentDescription = "Chat",
                         tint = AppColors.EmeraldGreen,
-                        modifier = Modifier
-                            .size(14.dp)
-                            .background(AppColors.EmeraldGreen.copy(alpha = 0.1f), CircleShape)
-                            .padding(1.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = user.bio ?: (if (isHindi) "कोई बायो नहीं" else "No bio available"),
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-
-        Spacer(modifier = Modifier.width(8.dp))
-
-        IconButton(
-            onClick = onClick,
-            modifier = Modifier
-                .size(26.dp)
-                .background(
-                    color = if (isDark) Color(0xFF2C2C2E) else Color(0xFFF2F2F7),
-                    shape = CircleShape
-                )
-        ) {
-            Icon(
-                imageVector = Lucide.MessageCircle,
-                contentDescription = "Chat",
-                tint = AppColors.EmeraldGreen,
-                modifier = Modifier.size(14.dp)
-            )
         }
     }
 }

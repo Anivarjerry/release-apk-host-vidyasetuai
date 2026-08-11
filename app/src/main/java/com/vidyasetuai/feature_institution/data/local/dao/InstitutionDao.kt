@@ -44,6 +44,9 @@ interface InstitutionDao {
     @Query("SELECT * FROM local_child_org_setups WHERE organization_id = :orgId")
     suspend fun getChildOrgSetup(orgId: String): LocalChildOrgSetupEntity?
 
+    @Query("SELECT * FROM local_child_org_setups")
+    suspend fun getAllChildOrgSetups(): List<LocalChildOrgSetupEntity>
+
     @Query("SELECT * FROM local_child_org_setups LIMIT 1")
     suspend fun getActiveSession(): LocalChildOrgSetupEntity?
     
@@ -347,6 +350,80 @@ interface InstitutionDao {
     @Query("DELETE FROM local_student_exam_marks")
     suspend fun clearStudentExamMarks()
 
+    // ── Staff Salary & Bus Fare Queries ──────────────────────────────────────
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertStaffSalaries(salaries: List<LocalParentStaffSalaryEntity>)
+
+    @Query("SELECT * FROM local_parent_staff_salaries WHERE parent_organization_id = :parentOrgId")
+    suspend fun getStaffSalaries(parentOrgId: String): List<LocalParentStaffSalaryEntity>
+
+    @Query("SELECT * FROM local_parent_staff_salaries WHERE staff_id = :staffId LIMIT 1")
+    suspend fun getStaffSalaryByStaffId(staffId: String): LocalParentStaffSalaryEntity?
+
+    @Query("DELETE FROM local_parent_staff_salaries")
+    suspend fun clearStaffSalaries()
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertStaffSalaryPayouts(payouts: List<LocalParentStaffSalaryPayoutEntity>)
+
+    @Query("SELECT * FROM local_parent_staff_salary_payouts WHERE parent_organization_id = :parentOrgId AND payout_month = :month AND payout_year = :year")
+    suspend fun getStaffSalaryPayoutsForMonth(parentOrgId: String, month: Int, year: Int): List<LocalParentStaffSalaryPayoutEntity>
+
+    @Query("SELECT * FROM local_parent_staff_salary_payouts WHERE parent_organization_id = :parentOrgId")
+    suspend fun getAllStaffSalaryPayouts(parentOrgId: String): List<LocalParentStaffSalaryPayoutEntity>
+
+    @Query("SELECT * FROM local_parent_staff_salary_payouts WHERE staff_id = :staffId")
+    suspend fun getStaffSalaryPayoutsForStaff(staffId: String): List<LocalParentStaffSalaryPayoutEntity>
+
+    @Query("DELETE FROM local_parent_staff_salary_payouts")
+    suspend fun clearStaffSalaryPayouts()
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertStaffSalaryPayments(payments: List<LocalParentStaffSalaryPaymentEntity>)
+
+    @Query("SELECT * FROM local_parent_staff_salary_payments WHERE parent_organization_id = :parentOrgId")
+    suspend fun getStaffSalaryPayments(parentOrgId: String): List<LocalParentStaffSalaryPaymentEntity>
+
+    @Query("SELECT * FROM local_parent_staff_salary_payments WHERE staff_id = :staffId")
+    suspend fun getStaffSalaryPaymentsForStaff(staffId: String): List<LocalParentStaffSalaryPaymentEntity>
+
+    @Query("DELETE FROM local_parent_staff_salary_payments")
+    suspend fun clearStaffSalaryPayments()
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertStaffBusEnrollments(enrollments: List<LocalParentStaffBusEnrollmentEntity>)
+
+    @Query("SELECT * FROM local_parent_staff_bus_enrollments WHERE parent_organization_id = :parentOrgId")
+    suspend fun getStaffBusEnrollments(parentOrgId: String): List<LocalParentStaffBusEnrollmentEntity>
+
+    @Query("SELECT * FROM local_parent_staff_bus_enrollments WHERE staff_id = :staffId LIMIT 1")
+    suspend fun getStaffBusEnrollmentByStaffId(staffId: String): LocalParentStaffBusEnrollmentEntity?
+
+    @Query("DELETE FROM local_parent_staff_bus_enrollments")
+    suspend fun clearStaffBusEnrollments()
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertStaffBusFares(fares: List<LocalParentStaffBusFareEntity>)
+
+    @Query("SELECT * FROM local_parent_staff_bus_fares WHERE parent_organization_id = :parentOrgId")
+    suspend fun getStaffBusFares(parentOrgId: String): List<LocalParentStaffBusFareEntity>
+
+    @Query("DELETE FROM local_parent_staff_bus_fares")
+    suspend fun clearStaffBusFares()
+
+    // ── Global Sessions ──────────────────────────────────────────────────────
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertGlobalSessions(sessions: List<LocalGlobalSessionEntity>)
+
+    @Query("SELECT * FROM local_global_sessions WHERE isActive = 1 AND isDeleted = 0")
+    suspend fun getActiveGlobalSessions(): List<LocalGlobalSessionEntity>
+
+    @Query("SELECT * FROM local_global_sessions WHERE id = :id LIMIT 1")
+    suspend fun getGlobalSessionById(id: String): LocalGlobalSessionEntity?
+
+    @Query("DELETE FROM local_global_sessions")
+    suspend fun clearGlobalSessions()
+
     // ── Database Replace Helper Transaction ───────────────────────────────────
     @Transaction
     suspend fun replaceWorkspaceDataPayload(
@@ -364,7 +441,13 @@ interface InstitutionDao {
         tripLogs: List<LocalParentBusTripAttendanceLogEntity>,
         calendarEvents: List<LocalCalendarEventEntity>,
         examSettings: List<LocalExamSubjectSettingEntity>,
-        remarks: List<LocalOrganizationRemarkEntity>
+        remarks: List<LocalOrganizationRemarkEntity>,
+        staffSalaries: List<LocalParentStaffSalaryEntity> = emptyList(),
+        staffSalaryPayouts: List<LocalParentStaffSalaryPayoutEntity> = emptyList(),
+        staffSalaryPayments: List<LocalParentStaffSalaryPaymentEntity> = emptyList(),
+        staffBusEnrollments: List<LocalParentStaffBusEnrollmentEntity> = emptyList(),
+        staffBusFares: List<LocalParentStaffBusFareEntity> = emptyList(),
+        globalSessions: List<LocalGlobalSessionEntity> = emptyList()
     ) {
         clearChildOrgSetups()
         clearStudents()
@@ -381,6 +464,11 @@ interface InstitutionDao {
         clearCalendarEvents()
         clearExamSubjectSettings()
         clearRemarks()
+        clearStaffSalaries()
+        clearStaffSalaryPayouts()
+        clearStaffSalaryPayments()
+        clearStaffBusEnrollments()
+        clearStaffBusFares()
 
         if (setups.isNotEmpty()) {
             setups.forEach { insertChildOrgSetup(it) }
@@ -399,6 +487,12 @@ interface InstitutionDao {
         if (calendarEvents.isNotEmpty()) insertCalendarEvents(calendarEvents)
         if (examSettings.isNotEmpty()) insertExamSubjectSettings(examSettings)
         if (remarks.isNotEmpty()) insertRemarks(remarks)
+        if (staffSalaries.isNotEmpty()) insertStaffSalaries(staffSalaries)
+        if (staffSalaryPayouts.isNotEmpty()) insertStaffSalaryPayouts(staffSalaryPayouts)
+        if (staffSalaryPayments.isNotEmpty()) insertStaffSalaryPayments(staffSalaryPayments)
+        if (staffBusEnrollments.isNotEmpty()) insertStaffBusEnrollments(staffBusEnrollments)
+        if (staffBusFares.isNotEmpty()) insertStaffBusFares(staffBusFares)
+        if (globalSessions.isNotEmpty()) insertGlobalSessions(globalSessions)
     }
 
 
@@ -424,7 +518,26 @@ interface InstitutionDao {
         clearExams()
         clearExamSubjectSettings()
         clearStudentExamMarks()
+        clearStaffSalaries()
+        clearStaffSalaryPayouts()
+        clearStaffSalaryPayments()
+        clearStaffBusEnrollments()
+        clearStaffBusFares()
+        clearStaffAudioBeacons()
     }
+
+    // ── Staff Audio Beacons ──────────────────────────────────────────────────
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertStaffAudioBeacons(beacons: List<LocalStaffAudioBeaconEntity>)
+
+    @Query("SELECT * FROM local_staff_audio_beacons WHERE staff_id = :staffId LIMIT 1")
+    suspend fun getStaffAudioBeaconByStaffId(staffId: String): LocalStaffAudioBeaconEntity?
+
+    @Query("SELECT * FROM local_staff_audio_beacons LIMIT 1")
+    suspend fun getAnyStaffAudioBeacon(): LocalStaffAudioBeaconEntity?
+
+    @Query("DELETE FROM local_staff_audio_beacons")
+    suspend fun clearStaffAudioBeacons()
 
     @Transaction
     suspend fun clearWorkspaceSpecificData() {
@@ -446,5 +559,11 @@ interface InstitutionDao {
         clearExams()
         clearExamSubjectSettings()
         clearStudentExamMarks()
+        clearStaffSalaries()
+        clearStaffSalaryPayouts()
+        clearStaffSalaryPayments()
+        clearStaffBusEnrollments()
+        clearStaffBusFares()
+        clearStaffAudioBeacons()
     }
 }

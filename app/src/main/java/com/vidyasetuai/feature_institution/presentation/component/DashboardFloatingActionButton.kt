@@ -1,16 +1,38 @@
 package com.vidyasetuai.feature_institution.presentation.component
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -24,8 +46,8 @@ import com.vidyasetuai.core.ui.colors.AppColors
 import com.vidyasetuai.feature_institution.util.DashboardFabRules
 
 /**
- * A premium Speed Dial Floating Action Button (FAB) for VidyaSetu AI dashboards.
- * Rendered at the root level, it dynamically shows actions for active tab and collapses on tab switch.
+ * A clean, minimalist Speed Dial Floating Action Button (FAB) for VidyaSetu AI dashboards.
+ * Features smooth AnimatedVisibility slide out/in from the right edge on side drawer toggle.
  */
 @Composable
 fun DashboardFloatingActionButton(
@@ -33,21 +55,24 @@ fun DashboardFloatingActionButton(
     role: String,
     isHindi: Boolean,
     isDark: Boolean,
+    isDrawerOpen: Boolean = false,
     onActionClick: (route: String, requiresToast: Boolean, label: String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var isExpanded by remember { mutableStateOf(false) }
 
-    // Automatically collapse the Speed Dial when switching between navigation tabs
-    LaunchedEffect(activeTab) {
-        isExpanded = false
+    // Automatically collapse the Speed Dial when switching navigation tabs or opening side drawer
+    LaunchedEffect(activeTab, isDrawerOpen) {
+        if (isDrawerOpen) {
+            isExpanded = false
+        }
     }
 
     // Resolve Speed Dial items for the active tab and user role
     val items = remember(activeTab, role) { DashboardFabRules.getSpeedDialItemsForTab(activeTab, role) }
 
-    // If there are no speed dial items to display on this tab, hide the FAB entirely
-    if (items.isEmpty()) return
+    // If there are no speed dial items or on Home tab, hide the FAB
+    if (items.isEmpty() || activeTab == "home") return
 
     val transition = updateTransition(targetState = isExpanded, label = "speedDialTransition")
     
@@ -62,130 +87,129 @@ fun DashboardFloatingActionButton(
         transitionSpec = { tween(durationMillis = 200) },
         label = "scrimAlpha"
     ) { expanded ->
-        if (expanded) 0.5f else 0f
+        if (expanded) 0.45f else 0f
     }
 
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.BottomEnd
     ) {
-        // 1. Full Screen Scrim Overlay (Only blocks clicks when expanded)
-        if (isExpanded) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = scrimAlpha))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        isExpanded = false
-                    }
-            )
-        }
-
-        // 2. FAB & Options Stack Column (adds padding from screen edges)
-        Column(
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier
-                .navigationBarsPadding()
-                .padding(bottom = 76.dp, end = 16.dp)
-        ) {
-            // Speed Dial items list
+            // 1. Full Screen Scrim Overlay (Transparent click handler when expanded)
             if (isExpanded) {
-                Column(
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items.forEach { item ->
-                        val label = if (isHindi) item.labelHi else item.labelEn
-                        SpeedDialActionRow(
-                            item = item,
-                            label = label,
-                            isDark = isDark,
-                            onClick = {
-                                isExpanded = false
-                                onActionClick(item.route, item.requiresToastOnly, label)
-                            }
-                        )
-                    }
-                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Transparent)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            isExpanded = false
+                        }
+                )
             }
 
-            // Main FAB Trigger (Green circular button with rotating Plus/Cross)
-            SmallFloatingActionButton(
-                onClick = { isExpanded = !isExpanded },
-                shape = CircleShape,
-                containerColor = AppColors.EmeraldGreen,
-                contentColor = Color.White,
-                elevation = FloatingActionButtonDefaults.elevation(
-                    defaultElevation = 5.dp,
-                    pressedElevation = 10.dp
-                )
+            // 2. FAB & Options Stack Column
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier
+                    .offset(y = 3.dp)
+                    .padding(bottom = 0.dp, end = 0.dp)
             ) {
-                Icon(
-                    imageVector = Lucide.Plus,
-                    contentDescription = "Toggle Actions",
-                    tint = Color.White,
-                    modifier = Modifier
-                        .size(20.dp)
-                        .graphicsLayer(rotationZ = rotation)
-                )
+                // Speed Dial items list
+                if (isExpanded) {
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items.forEach { item ->
+                            val label = if (isHindi) item.labelHi else item.labelEn
+                            SpeedDialActionRow(
+                                item = item,
+                                label = label,
+                                isDark = isDark,
+                                isDrawerOpen = isDrawerOpen,
+                                onClick = {
+                                    isExpanded = false
+                                    onActionClick(item.route, item.requiresToastOnly, label)
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // Main Rounded-Square Speed Dial FAB Button
+                FloatingActionButton(
+                    onClick = { if (!isDrawerOpen) isExpanded = !isExpanded },
+                    shape = RoundedCornerShape(16.dp),
+                    containerColor = AppColors.EmeraldGreen,
+                    contentColor = Color.White,
+                    elevation = FloatingActionButtonDefaults.elevation(
+                        defaultElevation = 6.dp,
+                        pressedElevation = 10.dp
+                    ),
+                    modifier = Modifier.size(52.dp)
+                ) {
+                    Icon(
+                        imageVector = Lucide.Plus,
+                        contentDescription = "Quick Actions",
+                        tint = Color.White,
+                        modifier = Modifier
+                            .size(24.dp)
+                            .graphicsLayer { rotationZ = rotation }
+                    )
+                }
             }
         }
     }
-}
 
 @Composable
 private fun SpeedDialActionRow(
     item: DashboardFabRules.SpeedDialItem,
     label: String,
     isDark: Boolean,
+    isDrawerOpen: Boolean = false,
     onClick: () -> Unit
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            )
-            .padding(end = 4.dp)
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null
+        ) { onClick() }
     ) {
-        // Option Text Label Card
-        Card(
-            shape = RoundedCornerShape(8.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = if (isDark) Color(0xFF1E1E1E) else Color.White
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        // Label Chip
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = if (isDark) Color(0xFF2C2C2E) else Color.White,
+            shadowElevation = 4.dp,
+            tonalElevation = 2.dp
         ) {
             Text(
                 text = label,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                color = if (isDark) Color.White else Color.Black,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (isDark) Color.White else Color(0xFF1C1C1E),
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
             )
         }
 
-        // Option Icon Mini FAB
-        SmallFloatingActionButton(
+        // Action Icon FAB
+        FloatingActionButton(
             onClick = onClick,
-            shape = CircleShape,
-            containerColor = if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E5EA),
-            contentColor = if (isDark) Color.White else Color.Black,
-            modifier = Modifier.size(36.dp),
-            elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 2.dp)
+            shape = RoundedCornerShape(14.dp),
+            containerColor = AppColors.EmeraldGreen,
+            contentColor = Color.White,
+            elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 4.dp),
+            modifier = Modifier.size(46.dp)
         ) {
             Icon(
                 imageVector = item.icon,
                 contentDescription = label,
-                tint = if (isDark) Color.White else Color.Black,
-                modifier = Modifier.size(16.dp)
+                tint = Color.White,
+                modifier = Modifier.size(20.dp)
             )
         }
     }

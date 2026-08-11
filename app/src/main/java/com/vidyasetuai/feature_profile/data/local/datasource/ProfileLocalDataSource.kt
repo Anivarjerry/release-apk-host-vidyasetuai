@@ -19,6 +19,10 @@ class ProfileLocalDataSource(private val dao: UserProfileDao) {
         dao.insertProfile(profile)
     }
 
+    suspend fun updateLocalPaths(userId: String, profilePath: String?, coverPath: String?) {
+        dao.updateLocalPaths(userId, profilePath, coverPath)
+    }
+
     fun getVerificationFlow(userId: String): Flow<ContributorVerificationEntity?> {
         return dao.getVerificationFlow(userId)
     }

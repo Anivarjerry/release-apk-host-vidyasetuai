@@ -18,7 +18,23 @@ import com.vidyasetuai.feature_institution.domain.model.StaffSalaryPayment
 import com.vidyasetuai.feature_institution.domain.model.ContentFeedItem
 import com.vidyasetuai.feature_institution.domain.model.BusRouteStop
 import com.vidyasetuai.feature_institution.domain.model.StudentHomeLocation
+import com.vidyasetuai.feature_institution.domain.model.ParentBusTrip
+import com.vidyasetuai.feature_institution.domain.model.Remark
+import com.vidyasetuai.feature_institution.domain.model.RemarkTarget
+import com.vidyasetuai.feature_institution.domain.model.GlobalStaffRole
+import com.vidyasetuai.feature_institution.data.local.entity.LocalStudentEntity
+import com.vidyasetuai.feature_institution.data.local.entity.LocalParentStaffEntity
+import com.vidyasetuai.feature_institution.data.local.entity.LocalParentBusEntity
+import com.vidyasetuai.feature_institution.data.local.entity.LocalParentBusTripAttendanceLogWithStudentInfo
 
+data class TodayLogItem(
+    val id: String,
+    val title: String,
+    val titleHi: String? = null,
+    val subtitle: String,
+    val type: String, // ATTENDANCE, LEAVE, FEE, BUS, REMARK, NOTICE
+    val iconType: String // user, calendar, card, bus, info
+)
 
 data class InstitutionUiState(
     val userId: String = "",
@@ -40,7 +56,7 @@ data class InstitutionUiState(
     val notificationSubscribed: Boolean = false,
     val studentAttendance: List<StudentAttendance> = emptyList(),
     val studentBuses: List<StudentBusAssignment> = emptyList(),
-    val allBuses: List<com.vidyasetuai.feature_institution.data.local.entity.LocalParentBusEntity> = emptyList(),
+    val allBuses: List<LocalParentBusEntity> = emptyList(),
     val activeBusLocation: BusLiveLocation? = null,
     val activeBusRoutes: Map<String, List<BusRouteStop>> = emptyMap(), // busId -> route stops
     val isTrackingActive: Boolean = false,
@@ -67,6 +83,17 @@ data class InstitutionUiState(
     val monthlySalary: Double = 0.0,
     val totalSalaryPaid: Double = 0.0,
     val salaryPayments: List<StaffSalaryPayment> = emptyList(),
+    val salaryOverviews: List<com.vidyasetuai.feature_institution.domain.model.StaffSalaryOverview> = emptyList(),
+    val selectedSalaryMonth: Int = 7,
+    val selectedSalaryYear: Int = 2026,
+    val totalPayrollAmount: Double = 0.0,
+    val totalSalaryPaidAmount: Double = 0.0,
+    val totalSalaryPendingAmount: Double = 0.0,
+    val totalPayrollPaidAmount: Double = 0.0,
+    val totalAdvancePaidAmount: Double = 0.0,
+    val selectedStaffOverview: com.vidyasetuai.feature_institution.domain.model.StaffSalaryOverview? = null,
+    val isRecordPaymentDialogOpen: Boolean = false,
+    val isSetSalaryDialogOpen: Boolean = false,
     val contentFeedItems: List<ContentFeedItem> = emptyList(),
     
     // Admin Dashboard aggregates
@@ -74,35 +101,43 @@ data class InstitutionUiState(
     val adminTotalPending: Double = 0.0,
 
     // Driver Bus Trip & Attendance Logs State
-    val activeBusTrip: com.vidyasetuai.feature_institution.domain.model.ParentBusTrip? = null,
-    val busTripAttendanceLogs: List<com.vidyasetuai.feature_institution.data.local.entity.LocalParentBusTripAttendanceLogWithStudentInfo> = emptyList(),
+    val activeBusTrip: ParentBusTrip? = null,
+    val busTripAttendanceLogs: List<LocalParentBusTripAttendanceLogWithStudentInfo> = emptyList(),
     val isSyncingLogs: Boolean = false,
     val syncSuccessCount: Int = 0,
-    val driverBusTrips: List<com.vidyasetuai.feature_institution.domain.model.ParentBusTrip> = emptyList(),
-    val assignedStudents: List<com.vidyasetuai.feature_institution.data.local.entity.LocalStudentEntity> = emptyList(),
+
+    // Offline Unsynced Counts State
+    val unsyncedAttendanceCount: Int = 0,
+    val unsyncedLeavesCount: Int = 0,
+    val unsyncedRemarksCount: Int = 0,
+    val totalUnsyncedCount: Int = 0,
+
+    // Dynamic Today's Logs State
+    val todayLogs: List<TodayLogItem> = emptyList(),
+
+    // SubScreen & Search State
     val searchQuery: String = "",
     val isCameraScannerOpen: Boolean = false,
-
-    // Remarks System State
-    val offlineStudents: List<com.vidyasetuai.feature_institution.data.local.entity.LocalStudentEntity> = emptyList(),
-    val remarks: List<com.vidyasetuai.feature_institution.domain.model.Remark> = emptyList(),
-    val remarkTargetsMap: Map<String, List<com.vidyasetuai.feature_institution.domain.model.RemarkTarget>> = emptyMap(),
-    val latestRemarkAlert: com.vidyasetuai.feature_institution.domain.model.Remark? = null,
-    val globalStaffRoles: List<com.vidyasetuai.feature_institution.domain.model.GlobalStaffRole> = emptyList(),
-    val offlineStaff: List<com.vidyasetuai.feature_institution.data.local.entity.LocalParentStaffEntity> = emptyList(),
-
-    // Active SubScreen State (persisted via SharedPreferences)
     val activeSubScreen: String? = null,
+    
+    // Audio Proximity Self Attendance Code
+    val staffAudioCode: String? = null,
 
-    // Home Location & Details Screens State
-    val selectedStudentDetail: com.vidyasetuai.feature_institution.data.local.entity.LocalStudentEntity? = null,
+    // Additional Directory / Entities State
+    val offlineStudents: List<LocalStudentEntity> = emptyList(),
+    val offlineStaff: List<LocalParentStaffEntity> = emptyList(),
+    val assignedStudents: List<LocalStudentEntity> = emptyList(),
+
+    // Remarks State
+    val remarks: List<Remark> = emptyList(),
+    val remarkTargetsMap: Map<String, List<RemarkTarget>> = emptyMap(),
+    val latestRemarkAlert: Remark? = null,
+
+    // Global Roles & Details State
+    val globalStaffRoles: List<GlobalStaffRole> = emptyList(),
+    val selectedStudentDetail: LocalStudentEntity? = null,
     val selectedStudentBusAssignment: StudentBusAssignment? = null,
     val selectedStudentHomeLocation: StudentHomeLocation? = null,
     val isSavingHomeLocation: Boolean = false,
-    
-    // Sync Center Unsynced Counts
-    val unsyncedLeavesCount: Int = 0,
-    val unsyncedRemarksCount: Int = 0,
-    val unsyncedAttendanceCount: Int = 0,
-    val totalUnsyncedCount: Int = 0
+    val driverBusTrips: List<ParentBusTrip> = emptyList()
 )

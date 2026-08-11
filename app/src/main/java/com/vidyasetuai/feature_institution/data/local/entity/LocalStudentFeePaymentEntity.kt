@@ -19,6 +19,9 @@ data class LocalStudentFeePaymentEntity(
     @ColumnInfo(name = "student_id")
     val studentId: String,
     
+    @ColumnInfo(name = "fee_head_type_id")
+    val feeHeadTypeId: String? = null,
+    
     @ColumnInfo(name = "receipt_number")
     val receiptNumber: String,
     

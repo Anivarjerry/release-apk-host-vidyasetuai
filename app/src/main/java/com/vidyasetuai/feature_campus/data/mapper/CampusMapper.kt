@@ -1,66 +1,64 @@
 package com.vidyasetuai.feature_campus.data.mapper
 
-import com.vidyasetuai.feature_campus.data.local.entity.MessageEntity
 import com.vidyasetuai.feature_campus.data.local.entity.ModerationSettingsEntity
-import com.vidyasetuai.feature_campus.data.local.entity.RoomEntity
-import com.vidyasetuai.feature_campus.data.remote.dto.MessageDto
+import com.vidyasetuai.feature_campus.data.local.entity.PrivateMessageEntity
+import com.vidyasetuai.feature_campus.data.local.entity.PrivateRoomEntity
 import com.vidyasetuai.feature_campus.data.remote.dto.ModerationSettingsDto
-import com.vidyasetuai.feature_campus.data.remote.dto.RoomDto
-import com.vidyasetuai.feature_campus.domain.model.CampusMessage
-import com.vidyasetuai.feature_campus.domain.model.CampusRoom
+import com.vidyasetuai.feature_campus.domain.model.MessageSyncStatus
 import com.vidyasetuai.feature_campus.domain.model.ModerationSettings
+import com.vidyasetuai.feature_campus.domain.model.PrivateMessage
+import com.vidyasetuai.feature_campus.domain.model.PrivateMessageDto
+import com.vidyasetuai.feature_campus.domain.model.PrivateRoom
+import com.vidyasetuai.feature_campus.domain.model.PrivateRoomDto
 
 object CampusMapper {
 
-    fun RoomDto.toEntity(): RoomEntity = RoomEntity(
+    fun PrivateRoomDto.toEntity(): PrivateRoomEntity = PrivateRoomEntity(
         id = id,
-        name = name,
-        category = category,
-        description = description,
-        messageCooldownSeconds = messageCooldownSeconds,
-        isActive = isActive,
-        isDeleted = isDeleted,
-        createdAt = createdAt,
-        updatedAt = updatedAt
+        user1Id = user1Id,
+        user2Id = user2Id,
+        createdAt = createdAt
     )
 
-    fun RoomEntity.toDomain(): CampusRoom = CampusRoom(
+    fun PrivateRoomEntity.toDomain(): PrivateRoom = PrivateRoom(
         id = id,
-        name = name,
-        category = category,
-        description = description,
-        messageCooldownSeconds = messageCooldownSeconds,
-        isActive = isActive,
-        isDeleted = isDeleted,
-        createdAt = createdAt,
-        updatedAt = updatedAt
+        user1Id = user1Id,
+        user2Id = user2Id,
+        createdAt = createdAt
     )
 
-    fun MessageDto.toEntity(isSynced: Boolean = true): MessageEntity = MessageEntity(
-        id = id,
+    fun PrivateMessageDto.toEntity(syncStatus: String = "SENT"): PrivateMessageEntity = PrivateMessageEntity(
+        localId = id,
+        serverId = id,
         roomId = roomId,
-        userId = userId,
-        content = content,
-        isHidden = isHidden,
-        isDeleted = isDeleted,
+        senderId = senderId,
+        messageText = messageText,
+        mediaUrl = mediaUrl,
+        isSaved = isSaved,
+        syncStatus = syncStatus,
         createdAt = createdAt,
-        updatedAt = updatedAt,
-        isSynced = isSynced,
-        isFailed = false
+        updatedAt = createdAt
     )
 
-    fun MessageEntity.toDomain(senderUsername: String? = null): CampusMessage = CampusMessage(
-        id = id,
+    fun PrivateMessageEntity.toDomain(): PrivateMessage = PrivateMessage(
+        id = localId,
+        localId = localId,
+        serverId = serverId,
         roomId = roomId,
-        userId = userId,
-        content = content,
-        isHidden = isHidden,
-        isDeleted = isDeleted,
+        senderId = senderId,
+        messageText = messageText,
+        mediaUrl = mediaUrl,
+        mediaLocalPath = mediaLocalPath,
+        isSaved = isSaved,
         createdAt = createdAt,
-        updatedAt = updatedAt,
-        isSynced = isSynced,
-        isFailed = isFailed,
-        senderUsername = senderUsername
+        syncStatus = when (syncStatus) {
+            "PENDING" -> MessageSyncStatus.PENDING
+            "SENT" -> MessageSyncStatus.SENT
+            "DELIVERED" -> MessageSyncStatus.DELIVERED
+            "READ" -> MessageSyncStatus.READ
+            "FAILED" -> MessageSyncStatus.FAILED
+            else -> MessageSyncStatus.SENT
+        }
     )
 
     fun ModerationSettingsDto.toEntity(): ModerationSettingsEntity = ModerationSettingsEntity(

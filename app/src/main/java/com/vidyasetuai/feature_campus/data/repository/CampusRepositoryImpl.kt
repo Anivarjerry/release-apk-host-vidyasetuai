@@ -1,28 +1,29 @@
 package com.vidyasetuai.feature_campus.data.repository
 
+import com.vidyasetuai.core.network.SupabaseClient
+import com.vidyasetuai.core.security.CryptoManager
 import com.vidyasetuai.feature_campus.data.local.dao.CampusDao
-import com.vidyasetuai.feature_campus.data.local.entity.MessageEntity
-import com.vidyasetuai.feature_campus.data.local.entity.RoomEntity
+import com.vidyasetuai.feature_campus.data.local.entity.PrivateMessageEntity
+import com.vidyasetuai.feature_campus.data.local.entity.PrivateRoomEntity
 import com.vidyasetuai.feature_campus.data.mapper.CampusMapper.toDomain
 import com.vidyasetuai.feature_campus.data.mapper.CampusMapper.toEntity
 import com.vidyasetuai.feature_campus.data.remote.datasource.CampusRemoteDataSource
-import com.vidyasetuai.feature_campus.domain.model.CampusMessage
-import com.vidyasetuai.feature_campus.domain.model.CampusRoom
+import com.vidyasetuai.feature_campus.domain.model.MessageSyncStatus
 import com.vidyasetuai.feature_campus.domain.model.ModerationSettings
+import com.vidyasetuai.feature_campus.domain.model.PrivateMessage
+import com.vidyasetuai.feature_campus.domain.model.PrivateRoom
 import com.vidyasetuai.feature_campus.domain.repository.CampusRepository
 import com.vidyasetuai.feature_profile.data.local.dao.UserProfileDao
 import com.vidyasetuai.feature_profile.data.remote.datasource.ProfileRemoteDataSource
+import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
-import java.time.temporal.ChronoUnit
 import java.util.Locale
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArraySet
 
@@ -30,208 +31,350 @@ class CampusRepositoryImpl(
     private val campusDao: CampusDao,
     private val remoteDataSource: CampusRemoteDataSource,
     private val userProfileDao: UserProfileDao,
-    private val profileRemoteDS: ProfileRemoteDataSource
+    private val profileRemoteDS: ProfileRemoteDataSource,
+    private val context: android.content.Context? = null
 ) : CampusRepository {
 
     private val blockedKeywords = CopyOnWriteArraySet<String>()
-    private val usernameCache = ConcurrentHashMap<String, String>()
+    private val peerPublicKeyCache = ConcurrentHashMap<String, String>()
     private val repositoryScope = CoroutineScope(Dispatchers.IO)
 
-    private val tickerFlow = flow {
-        while (true) {
-            emit(Unit)
-            delay(15000L) // Emit every 15 seconds to keep messages updated in real-time
-        }
-    }
-
-    private fun parseCreatedAt(createdAt: String): Instant {
-        if (createdAt.isEmpty()) return Instant.now()
-        val trimmed = createdAt.trim()
-        
-        // 1. Try ISO-8601 parsing directly (Instant.parse)
-        try {
-            return Instant.parse(trimmed)
-        } catch (e: Exception) {
-            // Ignore
-        }
-        
-        // 2. Try normalized ISO-8601 parsing (space replaced by 'T')
-        val normalized = trimmed.replace(' ', 'T')
-        try {
-            return Instant.parse(normalized)
-        } catch (e: Exception) {
-            // Ignore
-        }
-
-        // 3. Try parsing with timezone offset normalization (e.g. +00 to +00:00)
-        try {
-            if (normalized.matches(Regex(".*[+-]\\d{2}"))) {
-                return Instant.parse(normalized + ":00")
+    override suspend fun initializeUserKeys(userId: String): Result<Unit> = runCatching {
+        CryptoManager.ensureKeyPairExists()
+        val pubKeyBase64 = CryptoManager.getMyPublicKeyBase64()
+        if (!pubKeyBase64.isNullOrEmpty()) {
+            try {
+                SupabaseClient.client.postgrest["user_profiles"].update(
+                    mapOf("public_key" to pubKeyBase64)
+                ) {
+                    filter {
+                        eq("user_id", userId)
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("CampusRepo", "Failed to upload public key to server", e)
             }
-        } catch (e: Exception) {
-            // Ignore
         }
-
-        // 4. Try parsing as LocalDateTime (assuming UTC if no timezone is provided)
-        try {
-            val dtString = if (normalized.contains('.')) normalized.substringBefore('.') else normalized
-            val localDateTime = java.time.LocalDateTime.parse(dtString)
-            return localDateTime.toInstant(java.time.ZoneOffset.UTC)
-        } catch (e: Exception) {
-            // Ignore
-        }
-
-        // 5. Try OffsetDateTime parsing
-        try {
-            return java.time.OffsetDateTime.parse(normalized).toInstant()
-        } catch (e: Exception) {
-            // Ignore
-        }
-
-        return Instant.now()
     }
 
-    override fun getRooms(): Flow<List<CampusRoom>> {
-        return campusDao.getRoomsFlow().map { entities ->
+    override fun getPrivateRoomsFlow(): Flow<List<PrivateRoom>> {
+        return campusDao.getPrivateRoomsFlow().map { entities ->
             entities.map { it.toDomain() }
         }
     }
 
-    override suspend fun syncRooms(): Result<Unit> {
-        return runCatching {
-            val remoteRooms = remoteDataSource.getRooms()
-            campusDao.insertRooms(remoteRooms.map { it.toEntity() })
+    private fun parseCreatedAt(dateStr: String): java.time.Instant {
+        return try {
+            java.time.Instant.parse(dateStr)
+        } catch (e: Exception) {
+            try {
+                val zdt = java.time.ZonedDateTime.parse(dateStr)
+                zdt.toInstant()
+            } catch (ex: Exception) {
+                java.time.Instant.EPOCH
+            }
         }
     }
 
-    override fun getMessages(roomId: String): Flow<List<CampusMessage>> {
-        return combine(
-            campusDao.getMessagesFlow(roomId),
-            tickerFlow
-        ) { entities, _ ->
-            val cutoff = Instant.now().minus(15, ChronoUnit.MINUTES)
-            val filtered = entities.filter {
-                try {
-                    val msgTime = parseCreatedAt(it.createdAt)
-                    msgTime.isAfter(cutoff)
-                } catch (e: Exception) {
-                    true
-                }
-            }
-
-            filtered.map { entity ->
-                val cached = usernameCache[entity.userId]
-                if (cached == null) {
-                    usernameCache[entity.userId] = "User"
-                    repositoryScope.launch {
-                        fetchAndCacheUsername(entity.userId)
+    override fun getPrivateMessagesFlow(roomId: String): Flow<List<PrivateMessage>> {
+        return campusDao.getPrivateMessagesFlow(roomId).map { entities ->
+            val cutoff = java.time.Instant.now().minus(24, java.time.temporal.ChronoUnit.HOURS)
+            val distinctEntities = entities
+                .filter { entity ->
+                    if (entity.isSaved) return@filter true
+                    try {
+                        val msgTime = parseCreatedAt(entity.createdAt)
+                        msgTime.isAfter(cutoff)
+                    } catch (e: Exception) {
+                        true
                     }
                 }
-                entity.toDomain(usernameCache[entity.userId] ?: "User")
+                .distinctBy { if (!it.serverId.isNullOrEmpty()) it.serverId else it.localId }
+
+            distinctEntities.map { it.toDomain() }
+        }
+    }
+
+    override suspend fun syncPrivateRooms(): Result<Unit> = runCatching {
+        // Fetch or update rooms from remote if needed
+    }
+
+    override suspend fun syncPrivateMessages(roomId: String, peerUserId: String?): Result<Unit> = runCatching {
+        val cutoffIso = java.time.Instant.now().minus(24, java.time.temporal.ChronoUnit.HOURS).toString()
+        campusDao.deleteExpiredUnsavedPrivateMessages(cutoffIso)
+
+        val remoteDtos = remoteDataSource.getPrivateMessages(roomId)
+        val peerPubKey = if (!peerUserId.isNullOrEmpty()) fetchPeerPublicKey(peerUserId) else null
+
+        val entities = remoteDtos.map { dto ->
+            val plainText = if (dto.messageText != null && peerPubKey != null) {
+                CryptoManager.decryptMessage(dto.messageText, peerPubKey)
+            } else {
+                dto.messageText
             }
+
+            val existingLocal = campusDao.getPrivateMessageByServerId(dto.id)
+            val targetLocalId = existingLocal?.localId ?: dto.id
+
+            PrivateMessageEntity(
+                localId = targetLocalId,
+                serverId = dto.id,
+                roomId = dto.roomId,
+                senderId = dto.senderId,
+                messageText = plainText,
+                mediaUrl = dto.mediaUrl,
+                isSaved = dto.isSaved,
+                syncStatus = when (dto.status?.lowercase()) {
+                    "delivered" -> "DELIVERED"
+                    "read" -> "READ"
+                    "pending" -> "PENDING"
+                    "failed" -> "FAILED"
+                    else -> "SENT"
+                },
+                createdAt = dto.createdAt,
+                updatedAt = dto.createdAt
+            )
         }
+
+        campusDao.insertPrivateMessages(entities)
+        syncUnsyncedPrivateMessages()
     }
 
-    override suspend fun syncMessages(roomId: String): Result<Unit> {
-        return runCatching {
-            // 1. Sync messages from server
-            val remoteMessages = remoteDataSource.getMessages(roomId)
-            campusDao.insertMessages(remoteMessages.map { it.toEntity(isSynced = true) })
-
-            // 2. Local cleanup of messages older than 15 minutes
-            val expiryTime = Instant.now().minus(15, ChronoUnit.MINUTES).toString()
-            campusDao.deleteMessagesOlderThan(expiryTime)
-
-            // 3. Try to sync any unsynced offline messages
-            syncUnsyncedMessages()
-        }
-    }
-
-    private suspend fun syncUnsyncedMessages() {
-        val unsynced = campusDao.getUnsyncedMessages()
-        val cutoff = Instant.now().minus(15, ChronoUnit.MINUTES)
+    override suspend fun syncUnsyncedPrivateMessages(): Result<Unit> = runCatching {
+        val unsynced = campusDao.getUnsyncedPrivateMessages()
         for (msg in unsynced) {
-            val msgTime = try {
-                Instant.parse(msg.createdAt)
-            } catch (e: Exception) {
-                Instant.now()
-            }
-            if (msgTime.isBefore(cutoff)) {
-                // Expired: delete from local DB
-                campusDao.deleteMessageById(msg.id)
-                continue
-            }
             try {
-                val response = remoteDataSource.sendMessage(msg.roomId, msg.userId, msg.content)
-                campusDao.deleteMessageById(msg.id)
-                campusDao.insertMessage(response.toEntity(isSynced = true))
+                val room = campusDao.getPrivateRoomById(msg.roomId)
+                val peerId = if (room != null) {
+                    if (room.user1Id == msg.senderId) room.user2Id else room.user1Id
+                } else null
+
+                val peerPubKey = if (peerId != null) fetchPeerPublicKey(peerId) else null
+                val encryptedText = if (msg.messageText != null && peerPubKey != null) {
+                    CryptoManager.encryptMessage(msg.messageText, peerPubKey)
+                } else {
+                    msg.messageText
+                }
+
+                val response = remoteDataSource.sendPrivateMessage(
+                    roomId = msg.roomId,
+                    senderId = msg.senderId,
+                    text = encryptedText,
+                    mediaUrl = msg.mediaUrl
+                )
+
+                campusDao.updatePrivateMessageStatus(
+                    localId = msg.localId,
+                    serverId = response.id,
+                    status = "SENT"
+                )
             } catch (e: Exception) {
-                val errorMsg = e.message ?: ""
-                if (errorMsg.contains("Spam Protection")) {
-                    campusDao.insertMessage(msg.copy(isFailed = true))
+                android.util.Log.e("CampusRepo", "Failed to sync pending message ${msg.localId}", e)
+            }
+        }
+    }
+
+    override suspend fun getOrCreatePrivateRoom(userA: String, userB: String): Result<PrivateRoom> = runCatching {
+        val localRoom = campusDao.getPrivateRoomForUsers(userA, userB)
+        if (localRoom != null) {
+            val isMutual = checkIsMutualConnection(userA, userB)
+            if (isMutual) {
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    runCatching {
+                        val dto = remoteDataSource.getOrCreatePrivateRoom(userA, userB)
+                        campusDao.insertPrivateRoom(dto.toEntity())
+                    }
                 }
             }
+            return@runCatching localRoom.toDomain()
         }
+
+        val isMutual = checkIsMutualConnection(userA, userB)
+        if (!isMutual) {
+            val userListSorted = listOf(userA, userB).sorted()
+            val tempRoomId = "temp_${userListSorted[0]}_${userListSorted[1]}"
+            val tempEntity = com.vidyasetuai.feature_campus.data.local.entity.PrivateRoomEntity(
+                id = tempRoomId,
+                user1Id = userListSorted[0],
+                user2Id = userListSorted[1],
+                createdAt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.getDefault()).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(java.util.Date()),
+                lastMessageText = null,
+                lastMessageTime = null,
+                unreadCount = 0
+            )
+            campusDao.insertPrivateRoom(tempEntity)
+            return@runCatching tempEntity.toDomain()
+        }
+
+        val dto = remoteDataSource.getOrCreatePrivateRoom(userA, userB)
+        val entity = dto.toEntity()
+        campusDao.insertPrivateRoom(entity)
+        entity.toDomain()
     }
 
-    override suspend fun sendMessage(
+    override suspend fun sendPrivateMessage(
         roomId: String,
-        userId: String,
-        content: String
-    ): Result<CampusMessage> {
-        if (!isContentAppropriate(content)) {
+        senderId: String,
+        text: String?,
+        mediaUrl: String?,
+        peerUserId: String?
+    ): Result<PrivateMessage> {
+        if (text != null && !isContentAppropriate(text)) {
             return Result.failure(Exception("Appropriate language violation: Blocked keywords detected."))
         }
 
-        val tempId = java.util.UUID.randomUUID().toString()
+        val localId = UUID.randomUUID().toString()
         val timestamp = Instant.now().toString()
-        val tempEntity = MessageEntity(
-            id = tempId,
+
+        // 1. Instant local Room DB insertion (Optimistic UI Render - 0 ms)
+        val tempEntity = PrivateMessageEntity(
+            localId = localId,
+            serverId = null,
             roomId = roomId,
-            userId = userId,
-            content = content,
-            isHidden = false,
-            isDeleted = false,
+            senderId = senderId,
+            messageText = text,
+            mediaUrl = mediaUrl,
+            mediaLocalPath = null,
+            isSaved = false,
+            syncStatus = "PENDING",
             createdAt = timestamp,
-            updatedAt = timestamp,
-            isSynced = false,
-            isFailed = false
+            updatedAt = timestamp
         )
-        campusDao.insertMessage(tempEntity)
+        campusDao.insertPrivateMessage(tempEntity)
+        campusDao.updateRoomLastMessage(roomId, text ?: "📷 Photo", timestamp)
+
+        // 2. Network transmission (with E2EE payload encryption if peer key is present)
+        return try {
+            val peerPubKey = if (peerUserId != null) fetchPeerPublicKey(peerUserId) else null
+            val encryptedText = if (text != null && peerPubKey != null) {
+                CryptoManager.encryptMessage(text, peerPubKey)
+            } else {
+                text
+            }
+
+            val remoteDto = remoteDataSource.sendPrivateMessage(roomId, senderId, encryptedText, mediaUrl)
+            
+            // Update local entity with serverId and status = SENT
+            campusDao.updatePrivateMessageStatus(
+                localId = localId,
+                serverId = remoteDto.id,
+                status = "SENT"
+            )
+
+            Result.success(tempEntity.copy(serverId = remoteDto.id, syncStatus = "SENT").toDomain())
+        } catch (e: Exception) {
+            // Network failure: keep local message in Room DB with status PENDING for background sync
+            Result.success(tempEntity.toDomain())
+        }
+    }
+
+    override suspend fun markRoomAsRead(roomId: String, currentUserId: String): Result<Unit> = runCatching {
+        campusDao.markRoomAsRead(roomId)
+        campusDao.markMessagesAsRead(roomId, currentUserId)
+        try {
+            remoteDataSource.markRoomMessagesAsReadRemote(roomId, currentUserId)
+        } catch (e: Exception) {
+            // Silent catch for background network read status update
+        }
+    }
+
+    override suspend fun toggleSavePrivateMessage(
+        messageId: String,
+        isSaved: Boolean
+    ): Result<Unit> = runCatching {
+        campusDao.updatePrivateMessageSavedStatus(messageId, messageId, isSaved)
+        try {
+            remoteDataSource.toggleSavePrivateMessage(messageId, isSaved)
+        } catch (e: Exception) {
+            // Saved locally
+        }
+    }
+
+    override fun observePrivateMessages(roomId: String, peerUserId: String?): Flow<PrivateMessage> {
+        return remoteDataSource.subscribeToPrivateMessages(roomId).map { dto ->
+            val peerPubKey = if (peerUserId != null) fetchPeerPublicKey(peerUserId) else null
+            val plainText = if (dto.messageText != null && peerPubKey != null) {
+                CryptoManager.decryptMessage(dto.messageText, peerPubKey)
+            } else {
+                dto.messageText
+            }
+
+            val existingLocal = campusDao.getPrivateMessageByServerId(dto.id)
+                ?: campusDao.getPrivateMessageByLocalId(dto.id)
+            val targetLocalId = existingLocal?.localId ?: dto.id
+            val targetSaved = existingLocal?.isSaved ?: dto.isSaved
+            val finalMessageText = if (!plainText.isNullOrEmpty()) plainText else (existingLocal?.messageText ?: "")
+
+            val statusStr = when (dto.status?.lowercase()) {
+                "delivered" -> "DELIVERED"
+                "read" -> "READ"
+                "pending" -> "PENDING"
+                "failed" -> "FAILED"
+                else -> "SENT"
+            }
+
+            val entity = PrivateMessageEntity(
+                localId = targetLocalId,
+                serverId = dto.id,
+                roomId = dto.roomId,
+                senderId = dto.senderId,
+                messageText = finalMessageText,
+                mediaUrl = dto.mediaUrl,
+                isSaved = targetSaved,
+                syncStatus = statusStr,
+                createdAt = dto.createdAt,
+                updatedAt = dto.createdAt
+            )
+            campusDao.insertPrivateMessage(entity)
+            campusDao.updateRoomLastMessage(dto.roomId, finalMessageText.ifEmpty { "📷 Photo" }, dto.createdAt)
+
+            if (context != null && com.vidyasetuai.core.notification.handler.ChatNotificationHandler.activeChatRoomId != dto.roomId) {
+                val senderName = if (peerUserId != null) {
+                    val profile = userProfileDao.getProfile(peerUserId)
+                    profile?.fullName ?: profile?.firstName ?: "New Message"
+                } else {
+                    "New Message"
+                }
+                com.vidyasetuai.core.notification.handler.ChatNotificationHandler.showChatMessageNotification(
+                    context = context,
+                    senderName = senderName,
+                    messageSnippet = finalMessageText.ifEmpty { "Sent a photo" },
+                    roomId = dto.roomId,
+                    senderUserId = dto.senderId
+                )
+            }
+
+            entity.toDomain()
+        }
+    }
+
+    private suspend fun fetchPeerPublicKey(peerUserId: String): String? {
+        val cached = peerPublicKeyCache[peerUserId]
+        if (!cached.isNullOrEmpty()) return cached
 
         return try {
-            val remoteMessage = remoteDataSource.sendMessage(roomId, userId, content)
-            campusDao.deleteMessageById(tempId)
-            val syncedEntity = remoteMessage.toEntity(isSynced = true)
-            campusDao.insertMessage(syncedEntity)
-            Result.success(syncedEntity.toDomain(usernameCache[userId] ?: "User"))
-        } catch (e: Exception) {
-            val errorMsg = e.message ?: ""
-            if (errorMsg.contains("Spam Protection")) {
-                campusDao.insertMessage(tempEntity.copy(isFailed = true))
-                Result.failure(e)
-            } else {
-                // Network failure: keep local message unsynced so syncMessages can sync it later
-                Result.success(tempEntity.toDomain(usernameCache[userId] ?: "User"))
+            val profile = profileRemoteDS.getProfile(peerUserId)
+            val pubKey = profile.public_key
+            if (!pubKey.isNullOrEmpty()) {
+                peerPublicKeyCache[peerUserId] = pubKey
             }
+            pubKey
+        } catch (e: Exception) {
+            null
         }
     }
 
     override suspend fun loadModerationSettings(): Result<ModerationSettings> {
         return runCatching {
-            // First load from local DB if available
             val localSettings = campusDao.getModerationSettings()
             if (localSettings != null) {
                 blockedKeywords.clear()
                 blockedKeywords.addAll(localSettings.blockedKeywords)
             }
-
-            // Fetch from remote and update cache
             val remoteSettings = remoteDataSource.getModerationSettings()
             campusDao.insertModerationSettings(remoteSettings.toEntity())
             blockedKeywords.clear()
             blockedKeywords.addAll(remoteSettings.blockedKeywords)
-
             remoteSettings.toEntity().toDomain()
         }
     }
@@ -240,22 +383,8 @@ class CampusRepositoryImpl(
         messageId: String,
         reporterUserId: String,
         reason: String
-    ): Result<Unit> {
-        return runCatching {
-            remoteDataSource.reportMessage(messageId, reporterUserId, reason)
-        }
-    }
-
-    override fun observeRealtimeMessages(roomId: String): Flow<CampusMessage> {
-        return remoteDataSource.subscribeToMessages(roomId).map { dto ->
-            val entity = dto.toEntity(isSynced = true)
-            campusDao.insertMessage(entity)
-            entity.toDomain(usernameCache[dto.userId] ?: "User")
-        }
-    }
-
-    override fun observePresenceCount(roomId: String, userId: String): Flow<Int> {
-        return remoteDataSource.subscribeToPresenceCount(roomId, userId)
+    ): Result<Unit> = runCatching {
+        remoteDataSource.reportMessage(messageId, reporterUserId, reason)
     }
 
     override suspend fun isContentAppropriate(content: String): Boolean {
@@ -274,18 +403,134 @@ class CampusRepositoryImpl(
             return false
         }
 
-        // 1. Check DB blocked keywords
         val isBlockedInDb = blockedKeywords.any { checkMatch(it) }
         if (isBlockedInDb) return false
 
-        // 2. Check Hindi/Indian fallback list for extra safety
         val isBlockedInFallback = HINDI_ABUSE_FALLBACK.any { checkMatch(it) }
         return !isBlockedInFallback
     }
 
+    override fun getMutualInspirationsFlow(userId: String): Flow<List<com.vidyasetuai.feature_profile.domain.model.UserProfile>> {
+        return userProfileDao.getOtherProfilesFlow(userId).map { entities ->
+            entities.map { entity ->
+                com.vidyasetuai.feature_profile.domain.model.UserProfile(
+                    userId = entity.userId,
+                    email = entity.email,
+                    isActive = entity.isActive,
+                    isDeleted = entity.isDeleted,
+                    username = entity.username,
+                    firstName = entity.firstName,
+                    lastName = entity.lastName,
+                    fullName = entity.fullName,
+                    profilePictureUrl = entity.profilePictureUrl,
+                    coverPhotoUrl = entity.coverPhotoUrl,
+                    bio = entity.bio,
+                    preferredLanguage = entity.preferredLanguage,
+                    isVerified = entity.isVerified,
+                    gender = entity.gender,
+                    dateOfBirth = entity.dateOfBirth ?: "",
+                    totalInspiringCount = entity.totalInspiringCount,
+                    totalInspiredCount = entity.totalInspiredCount
+                )
+            }
+        }
+    }
+
+    override suspend fun checkIsMutualConnection(userA: String, userB: String): Boolean {
+        if (userA.isEmpty() || userB.isEmpty()) return false
+        if (userProfileDao.getProfile(userB) != null || campusDao.getPrivateRoomForUsers(userA, userB) != null) {
+            return true
+        }
+        return try {
+            val inspired = profileRemoteDS.getInspiredUsers(userA)
+            val inspiring = profileRemoteDS.getInspiringUsers(userA)
+            inspired.any { it.user_id == userB } && inspiring.any { it.user_id == userB }
+        } catch (e: Exception) {
+            userProfileDao.getProfile(userB) != null
+        }
+    }
+
+    override suspend fun getMutualInspirations(userId: String): Result<List<com.vidyasetuai.feature_profile.domain.model.UserProfile>> = runCatching {
+        try {
+            val inspired = profileRemoteDS.getInspiredUsers(userId)
+            val inspiring = profileRemoteDS.getInspiringUsers(userId)
+            val mutualDtos = inspired.filter { u -> inspiring.any { it.user_id == u.user_id } }
+            
+            val entities = mutualDtos.map { dto ->
+                com.vidyasetuai.feature_profile.data.local.entity.UserProfileEntity(
+                    userId = dto.user_id,
+                    email = dto.email,
+                    isActive = dto.is_active,
+                    isDeleted = dto.is_deleted,
+                    username = dto.username,
+                    firstName = dto.first_name,
+                    lastName = dto.last_name,
+                    fullName = dto.full_name,
+                    profilePictureUrl = dto.profile_picture_url,
+                    coverPhotoUrl = dto.cover_photo_url,
+                    bio = dto.bio,
+                    preferredLanguage = dto.preferred_language,
+                    isVerified = dto.is_verified,
+                    gender = dto.gender,
+                    dateOfBirth = dto.date_of_birth,
+                    totalInspiringCount = dto.total_inspiring_count,
+                    totalInspiredCount = dto.total_inspired_count
+                )
+            }
+            if (entities.isNotEmpty()) {
+                userProfileDao.insertProfiles(entities)
+            }
+
+            entities.map { entity ->
+                com.vidyasetuai.feature_profile.domain.model.UserProfile(
+                    userId = entity.userId,
+                    email = entity.email,
+                    isActive = entity.isActive,
+                    isDeleted = entity.isDeleted,
+                    username = entity.username,
+                    firstName = entity.firstName,
+                    lastName = entity.lastName,
+                    fullName = entity.fullName,
+                    profilePictureUrl = entity.profilePictureUrl,
+                    coverPhotoUrl = entity.coverPhotoUrl,
+                    bio = entity.bio,
+                    preferredLanguage = entity.preferredLanguage,
+                    isVerified = entity.isVerified,
+                    gender = entity.gender,
+                    dateOfBirth = entity.dateOfBirth ?: "",
+                    totalInspiringCount = entity.totalInspiringCount,
+                    totalInspiredCount = entity.totalInspiredCount
+                )
+            }
+        } catch (e: Exception) {
+            // Offline fallback: load cached profiles from local Room DB
+            val cachedEntities = userProfileDao.getOtherProfiles(userId)
+            cachedEntities.map { entity ->
+                com.vidyasetuai.feature_profile.domain.model.UserProfile(
+                    userId = entity.userId,
+                    email = entity.email,
+                    isActive = entity.isActive,
+                    isDeleted = entity.isDeleted,
+                    username = entity.username,
+                    firstName = entity.firstName,
+                    lastName = entity.lastName,
+                    fullName = entity.fullName,
+                    profilePictureUrl = entity.profilePictureUrl,
+                    coverPhotoUrl = entity.coverPhotoUrl,
+                    bio = entity.bio,
+                    preferredLanguage = entity.preferredLanguage,
+                    isVerified = entity.isVerified,
+                    gender = entity.gender,
+                    dateOfBirth = entity.dateOfBirth ?: "",
+                    totalInspiringCount = entity.totalInspiringCount,
+                    totalInspiredCount = entity.totalInspiredCount
+                )
+            }
+        }
+    }
+
     companion object {
         private val HINDI_ABUSE_FALLBACK = listOf(
-            // Hinglish / English slurs
             "chut", "chutya", "chutiya", "gand", "gaand", "gandu", "gaandu", "lauda", "laude", 
             "lowda", "lowde", "loda", "lodu", "lode", "madarchod", "behenchod", "bhenchod", 
             "behanchod", "bhosdike", "bhosadike", "bhosda", "bhosdi", "randi", "rndi", "bhadwa", 
@@ -298,147 +543,10 @@ class CampusRepositoryImpl(
             "lawda", "lode", "lowde", "chuchi", "chuchiya", "chuchiyan", "chuchiyo", "bitch", 
             "bastard", "fuck", "asshole", "dick", "pussy", "vagina", "boobs", "breast", "cunt", 
             "whore", "slut", "rape", "blowjob", "anal", "cum", "nude", "naked", "sex", "xxx", "porn",
-            // Devanagari Hindi slurs
             "चूत", "चूतिया", "गांड", "गांडू", "लौड़ा", "लौड़े", "लोड़ा", "लोडू", "मादरचोद", 
             "बहनचोद", "भोसड़ीके", "भोसड़ी", "भोसड़ा", "रंडी", "भड़वा", "साला", "साले", "साली", 
             "हरामी", "कमीना", "कमीने", "कुत्ता", "कुत्ते", "कुतिया", "हरामजादा", "हरामजादे", 
             "चोदू", "चोदना", "चुदवाना", "गांडू", "गांडमस्ती", "गांडफाड़", "गांडमरा", "गांडमराओ"
         )
-    }
-
-    private suspend fun fetchAndCacheUsername(userId: String) {
-        val localProfile = userProfileDao.getProfile(userId)
-        if (localProfile != null) {
-            usernameCache[userId] = localProfile.username ?: localProfile.fullName ?: "User"
-            return
-        }
-        try {
-            val remoteProfile = profileRemoteDS.getProfile(userId)
-            val name = remoteProfile.username ?: remoteProfile.full_name ?: "User"
-            usernameCache[userId] = name
-            userProfileDao.insertProfile(
-                com.vidyasetuai.feature_profile.data.local.entity.UserProfileEntity(
-                    userId = remoteProfile.user_id,
-                    username = remoteProfile.username,
-                    firstName = remoteProfile.first_name,
-                    lastName = remoteProfile.last_name,
-                    fullName = remoteProfile.full_name,
-                    profilePictureUrl = remoteProfile.profile_picture_url,
-                    coverPhotoUrl = remoteProfile.cover_photo_url,
-                    bio = remoteProfile.bio,
-                    preferredLanguage = remoteProfile.preferred_language,
-                    isVerified = remoteProfile.is_verified,
-                    gender = remoteProfile.gender,
-                    dateOfBirth = remoteProfile.date_of_birth
-                )
-            )
-        } catch (e: Exception) {
-            // Keep "User"
-        }
-    }
-
-    override suspend fun getMutualInspirations(userId: String): Result<List<com.vidyasetuai.feature_profile.domain.model.UserProfile>> = runCatching {
-        val inspired = profileRemoteDS.getInspiredUsers(userId)
-        val inspiring = profileRemoteDS.getInspiringUsers(userId)
-        
-        val mutualDtos = inspired.filter { u -> inspiring.any { it.user_id == u.user_id } }
-        
-        mutualDtos.map { dto ->
-            com.vidyasetuai.feature_profile.domain.model.UserProfile(
-                userId = dto.user_id,
-                email = "",
-                isActive = dto.is_active,
-                isDeleted = dto.is_deleted,
-                username = dto.username,
-                firstName = dto.first_name,
-                lastName = dto.last_name,
-                fullName = dto.full_name,
-                profilePictureUrl = dto.profile_picture_url,
-                coverPhotoUrl = dto.cover_photo_url,
-                bio = dto.bio,
-                preferredLanguage = dto.preferred_language,
-                isVerified = dto.is_verified,
-                gender = dto.gender,
-                dateOfBirth = dto.date_of_birth ?: "",
-                totalInspiringCount = dto.total_inspiring_count,
-                totalInspiredCount = dto.total_inspired_count
-            )
-        }
-    }
-
-    override suspend fun getOrCreatePrivateRoom(userA: String, userB: String): Result<com.vidyasetuai.feature_campus.domain.model.PrivateRoom> = runCatching {
-        val dto = remoteDataSource.getOrCreatePrivateRoom(userA, userB)
-        com.vidyasetuai.feature_campus.domain.model.PrivateRoom(
-            id = dto.id,
-            user1Id = dto.user1Id,
-            user2Id = dto.user2Id,
-            createdAt = dto.createdAt
-        )
-    }
-
-    override suspend fun getPrivateMessages(roomId: String): Result<List<com.vidyasetuai.feature_campus.domain.model.PrivateMessage>> = runCatching {
-        val list = remoteDataSource.getPrivateMessages(roomId)
-        list.map { dto ->
-            com.vidyasetuai.feature_campus.domain.model.PrivateMessage(
-                id = dto.id,
-                roomId = dto.roomId,
-                senderId = dto.senderId,
-                messageText = dto.messageText,
-                mediaUrl = dto.mediaUrl,
-                isSaved = dto.isSaved,
-                createdAt = dto.createdAt
-            )
-        }
-    }
-
-    override suspend fun sendPrivateMessage(
-        roomId: String,
-        senderId: String,
-        text: String?,
-        mediaUrl: String?
-    ): Result<com.vidyasetuai.feature_campus.domain.model.PrivateMessage> = runCatching {
-        if (text != null && !isContentAppropriate(text)) {
-            throw Exception("Appropriate language violation: Blocked keywords detected.")
-        }
-        val dto = remoteDataSource.sendPrivateMessage(roomId, senderId, text, mediaUrl)
-        com.vidyasetuai.feature_campus.domain.model.PrivateMessage(
-            id = dto.id,
-            roomId = dto.roomId,
-            senderId = dto.senderId,
-            messageText = dto.messageText,
-            mediaUrl = dto.mediaUrl,
-            isSaved = dto.isSaved,
-            createdAt = dto.createdAt
-        )
-    }
-
-    override suspend fun toggleSavePrivateMessage(
-        messageId: String,
-        isSaved: Boolean
-    ): Result<com.vidyasetuai.feature_campus.domain.model.PrivateMessage> = runCatching {
-        val dto = remoteDataSource.toggleSavePrivateMessage(messageId, isSaved)
-        com.vidyasetuai.feature_campus.domain.model.PrivateMessage(
-            id = dto.id,
-            roomId = dto.roomId,
-            senderId = dto.senderId,
-            messageText = dto.messageText,
-            mediaUrl = dto.mediaUrl,
-            isSaved = dto.isSaved,
-            createdAt = dto.createdAt
-        )
-    }
-
-    override fun observePrivateMessages(roomId: String): Flow<com.vidyasetuai.feature_campus.domain.model.PrivateMessage> {
-        return remoteDataSource.subscribeToPrivateMessages(roomId).map { dto ->
-            com.vidyasetuai.feature_campus.domain.model.PrivateMessage(
-                id = dto.id,
-                roomId = dto.roomId,
-                senderId = dto.senderId,
-                messageText = dto.messageText,
-                mediaUrl = dto.mediaUrl,
-                isSaved = dto.isSaved,
-                createdAt = dto.createdAt
-            )
-        }
     }
 }

@@ -19,6 +19,24 @@ sealed class InstitutionEvent {
         val createdBy: String
     ) : InstitutionEvent()
     data class LoadLeaves(val userId: String, val role: String) : InstitutionEvent()
+    data class UpdateLeaveStatus(
+        val leaveId: String,
+        val status: String,
+        val remarks: String?,
+        val actionBy: String
+    ) : InstitutionEvent()
+    data class SubmitAdditionalFee(
+        val organizationId: String,
+        val activeSessionId: String,
+        val studentId: String,
+        val globalFeeHeadId: String,
+        val amount: Double,
+        val globalFeeHeadName: String? = null,
+        val globalFeeHeadCode: String? = null
+    ) : InstitutionEvent()
+    data class CollectStudentFee(
+        val payment: com.vidyasetuai.feature_institution.data.local.entity.LocalStudentFeePaymentEntity
+    ) : InstitutionEvent()
     data class LoadFeePayments(val studentIds: List<String>) : InstitutionEvent()
     data class ToggleDriverTrip(val busId: String, val parentOrgId: String, val sessionId: String?) : InstitutionEvent()
     data class SelectChildOrg(val orgId: String) : InstitutionEvent()

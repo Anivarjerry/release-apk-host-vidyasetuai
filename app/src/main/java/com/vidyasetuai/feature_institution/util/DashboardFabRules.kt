@@ -46,15 +46,7 @@ object DashboardFabRules {
                     route = "fab_quicks"
                 )
             )
-            "journey" -> listOf(
-                SpeedDialItem(
-                    id = "add_journey",
-                    labelEn = "Add Journey",
-                    labelHi = "जर्नी शुरू करें",
-                    icon = Lucide.Plus,
-                    route = "fab_add_journey"
-                )
-            )
+            "journey" -> emptyList()
             "institute" -> {
                 val normalizedRole = role.trim().uppercase()
 
@@ -74,6 +66,14 @@ object DashboardFabRules {
                         icon = Lucide.MessageCircle,
                         route = "fab_remarks_add"
                     )
+                )
+
+                val selfAttendanceItem = SpeedDialItem(
+                    id = "self_attendance",
+                    labelEn = "Self Attendance",
+                    labelHi = "स्वयं की उपस्थिति",
+                    icon = Lucide.Volume2,
+                    route = "fab_self_attendance"
                 )
 
                 when (normalizedRole) {
@@ -96,6 +96,7 @@ object DashboardFabRules {
                         )
                     )
                     "DRIVER" -> commonItems + listOf(
+                        selfAttendanceItem,
                         SpeedDialItem(
                             id = "start_trip",
                             labelEn = "Start Trip Attendance",
@@ -105,6 +106,7 @@ object DashboardFabRules {
                         )
                     )
                     "TEACHER", "ASSISTANT TEACHER", "LECTURER", "COACH", "INSTRUCTOR" -> commonItems + listOf(
+                        selfAttendanceItem,
                         SpeedDialItem(
                             id = "add_attendance",
                             labelEn = "Take Attendance",
@@ -114,6 +116,7 @@ object DashboardFabRules {
                         )
                     )
                     "ACCOUNTANT", "FINANCE", "CASHIER", "TREASURER" -> commonItems + listOf(
+                        selfAttendanceItem,
                         SpeedDialItem(
                             id = "add_finance",
                             labelEn = "Add Finance",
@@ -131,12 +134,13 @@ object DashboardFabRules {
                         )
                     )
                     "ADMIN", "SYSTEM ADMINISTRATOR", "SCHOOL ADMINISTRATOR", "ORG ADMIN", "PRINCIPAL", "DIRECTOR", "OWNER" -> commonItems + listOf(
+                        selfAttendanceItem,
                         SpeedDialItem(
-                            id = "add_attendance",
-                            labelEn = "Take Attendance",
-                            labelHi = "उपस्थिति दर्ज करें",
-                            icon = Lucide.Check,
-                            route = "fab_take_attendance"
+                            id = "add_additional_fee",
+                            labelEn = "Add Additional Fee",
+                            labelHi = "अतिरिक्त फीस असाइन करें",
+                            icon = Lucide.Tag,
+                            route = "fab_add_additional_fee"
                         ),
                         SpeedDialItem(
                             id = "add_fee",
@@ -146,18 +150,10 @@ object DashboardFabRules {
                             route = "fab_fees"
                         )
                     )
-                    else -> commonItems
+                    else -> commonItems + listOf(selfAttendanceItem)
                 }
             }
-            "profile" -> listOf(
-                SpeedDialItem(
-                    id = "search_user",
-                    labelEn = "Search Users",
-                    labelHi = "यूज़र्स खोजें",
-                    icon = Lucide.Search,
-                    route = "fab_search_user"
-                )
-            )
+            "profile" -> emptyList()
             else -> emptyList()
         }
     }

@@ -48,6 +48,7 @@ fun PrincipalDashboard(
             role = activeWs?.role ?: "Principal",
             isHindi = isHindi,
             isDark = isDark,
+            todayLogs = state.todayLogs,
             onViewAllClick = onNavigateToAllLogs
         )
         

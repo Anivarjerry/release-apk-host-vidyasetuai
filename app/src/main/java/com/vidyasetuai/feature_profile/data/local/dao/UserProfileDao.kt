@@ -17,8 +17,20 @@ interface UserProfileDao {
     @Query("SELECT * FROM user_profiles WHERE user_id = :userId")
     suspend fun getProfile(userId: String): UserProfileEntity?
 
+    @Query("SELECT * FROM user_profiles WHERE user_id != :currentUserId")
+    fun getOtherProfilesFlow(currentUserId: String): Flow<List<UserProfileEntity>>
+
+    @Query("SELECT * FROM user_profiles WHERE user_id != :currentUserId")
+    suspend fun getOtherProfiles(currentUserId: String): List<UserProfileEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertProfile(profile: UserProfileEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertProfiles(profiles: List<UserProfileEntity>)
+
+    @Query("UPDATE user_profiles SET profile_picture_local_path = :profilePath, cover_photo_local_path = :coverPath WHERE user_id = :userId")
+    suspend fun updateLocalPaths(userId: String, profilePath: String?, coverPath: String?)
 
     @Query("SELECT * FROM contributor_verifications WHERE user_id = :userId")
     fun getVerificationFlow(userId: String): Flow<ContributorVerificationEntity?>

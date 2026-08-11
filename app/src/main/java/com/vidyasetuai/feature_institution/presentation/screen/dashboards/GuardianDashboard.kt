@@ -59,6 +59,7 @@ fun GuardianDashboard(
             role = activeWs?.role ?: "Guardian",
             isHindi = isHindi,
             isDark = isDark,
+            todayLogs = state.todayLogs,
             onViewAllClick = onNavigateToAllLogs
         )
         

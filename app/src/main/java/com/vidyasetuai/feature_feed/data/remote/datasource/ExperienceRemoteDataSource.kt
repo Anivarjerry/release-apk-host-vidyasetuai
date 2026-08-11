@@ -7,6 +7,8 @@ import com.vidyasetuai.feature_profile.data.remote.dto.UserProfileDto
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 class ExperienceRemoteDataSource {
 
@@ -90,15 +92,14 @@ class ExperienceRemoteDataSource {
     }
 
     suspend fun createExperience(title: String, description: String, coverImageUrl: String?, authorUserId: String) {
-        SupabaseClient.client.from("experiences").insert(
-            mapOf(
-                "title" to title,
-                "description" to description,
-                "cover_image_url" to coverImageUrl,
-                "author_user_id" to authorUserId,
-                "inspired_count" to 0,
-                "status" to "published"
-            )
-        )
+        val jsonPayload = buildJsonObject {
+            put("title", title)
+            put("description", description)
+            put("cover_image_url", coverImageUrl)
+            put("author_user_id", authorUserId)
+            put("inspired_count", 0)
+            put("status", "published")
+        }
+        SupabaseClient.client.from("experiences").insert(jsonPayload)
     }
 }

@@ -5,7 +5,6 @@ import androidx.annotation.RequiresApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composables.icons.lucide.*
 import com.vidyasetuai.core.ui.colors.AppColors
+import com.vidyasetuai.feature_institution.presentation.state.TodayLogItem
 
 data class LogItem(
     val title: String,
@@ -42,6 +42,7 @@ fun DashboardTodayLogsCard(
     onViewAllClick: () -> Unit,
     todayEventTitle: String? = null,
     isSchoolClosed: Boolean = false,
+    todayLogs: List<TodayLogItem> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     val cardBackground = if (isDark) AppColors.CharcoalGray else AppColors.PureWhite
@@ -76,11 +77,37 @@ fun DashboardTodayLogsCard(
         )
     }
 
-    // Role-specific logs (Max 3 logs in total)
-    val cleanRole = role.lowercase().trim()
-    val remainingSlots = 3 - logsList.size
-
-    if (remainingSlots > 0) {
+    // Role-specific logs from dynamic todayLogs state
+    if (todayLogs.isNotEmpty()) {
+        todayLogs.forEach { log ->
+            val iconVec = when (log.iconType) {
+                "user" -> Lucide.UserCheck
+                "calendar" -> Lucide.Calendar
+                "card" -> Lucide.CreditCard
+                "bus" -> Lucide.Bus
+                else -> Lucide.Info
+            }
+            val colorVal = when (log.type) {
+                "ATTENDANCE" -> AppColors.EmeraldGreen
+                "LEAVE" -> Color(0xFFF59E0B)
+                "FEE" -> Color(0xFF3B82F6)
+                "BUS" -> Color(0xFF8B5CF6)
+                else -> AppColors.EmeraldGreen
+            }
+            logsList.add(
+                LogItem(
+                    title = log.title,
+                    titleHi = log.titleHi ?: log.title,
+                    time = log.subtitle,
+                    timeHi = log.subtitle,
+                    icon = iconVec,
+                    color = colorVal
+                )
+            )
+        }
+    } else {
+        // Fallback role logs
+        val cleanRole = role.lowercase().trim()
         val roleLogs = when {
             cleanRole.contains("admin") || cleanRole.contains("principal") || cleanRole.contains("director") || cleanRole.contains("owner") -> {
                 listOf(
@@ -102,26 +129,6 @@ fun DashboardTodayLogsCard(
                     )
                 )
             }
-            cleanRole.contains("teacher") -> {
-                listOf(
-                    LogItem(
-                        title = "Class 10-A attendance submitted",
-                        titleHi = "कक्षा 10-A की उपस्थिति सबमिट की गई",
-                        time = "08:45 AM",
-                        timeHi = "सुबह 08:45",
-                        icon = Lucide.Check,
-                        color = AppColors.EmeraldGreen
-                    ),
-                    LogItem(
-                        title = "Next period: Maths in Class 8",
-                        titleHi = "अगला पीरियड: कक्षा 8 में गणित",
-                        time = "11:30 AM",
-                        timeHi = "सुबह 11:30",
-                        icon = Lucide.Clock,
-                        color = Color(0xFFF59E0B)
-                    )
-                )
-            }
             cleanRole.contains("guardian") -> {
                 listOf(
                     LogItem(
@@ -135,30 +142,10 @@ fun DashboardTodayLogsCard(
                     LogItem(
                         title = "Rahul's Term 2 fee due: ₹5,000",
                         titleHi = "राहुल की टर्म-2 फीस बकाया: ₹5,000",
-                        time = "Yesterday",
-                        timeHi = "कल",
+                        time = "Due Soon",
+                        timeHi = "शीघ्र देय",
                         icon = Lucide.CreditCard,
                         color = Color(0xFFEF4444)
-                    )
-                )
-            }
-            cleanRole.contains("driver") -> {
-                listOf(
-                    LogItem(
-                        title = "Morning Route: Completed",
-                        titleHi = "सुबह की पिकअप ट्रिप पूरी हो गई",
-                        time = "09:00 AM",
-                        timeHi = "सुबह 09:00",
-                        icon = Lucide.Bus,
-                        color = AppColors.EmeraldGreen
-                    ),
-                    LogItem(
-                        title = "Afternoon Route start at 02:00 PM",
-                        titleHi = "दोपहर की ट्रिप शुरू होगी 02:00 बजे",
-                        time = "01:30 PM",
-                        timeHi = "दोपहर 01:30",
-                        icon = Lucide.Navigation,
-                        color = Color(0xFF3B82F6)
                     )
                 )
             }
@@ -171,20 +158,14 @@ fun DashboardTodayLogsCard(
                         timeHi = "सुबह 08:30",
                         icon = Lucide.Check,
                         color = AppColors.EmeraldGreen
-                    ),
-                    LogItem(
-                        title = "Staff meeting in Seminar Hall",
-                        titleHi = "सेमिनार हॉल में स्टाफ बैठक",
-                        time = "03:00 PM",
-                        timeHi = "दोपहर 03:00",
-                        icon = Lucide.Users,
-                        color = Color(0xFF3B82F6)
                     )
                 )
             }
         }
-        logsList.addAll(roleLogs.take(remainingSlots))
+        logsList.addAll(roleLogs)
     }
+
+    val displayLogs = logsList.take(3)
 
     Column(
         modifier = modifier
@@ -199,83 +180,93 @@ fun DashboardTodayLogsCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = if (isHindi) "आज की हलचल 📋" else "Today's Logs 📋",
-                color = if (isDark) AppColors.PureWhite else AppColors.NearBlack,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = if (isHindi) "आज की हलचल 📋" else "Today's Logs 📋",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isDark) AppColors.PureWhite else Color(0xFF171717)
+                )
+            }
+
+            // View All button hidden for future redesign
+            /*
             Text(
                 text = if (isHindi) "सभी देखें >" else "View All >",
-                color = AppColors.EmeraldGreen,
-                fontSize = 12.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
+                color = AppColors.EmeraldGreen,
                 modifier = Modifier.clickable { onViewAllClick() }
             )
+            */
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Vertical Logs timeline
-        if (logsList.isEmpty()) {
-            Text(
-                text = if (isHindi) "आज कोई हलचल नहीं है" else "No logs for today",
-                color = textColorSecondary,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Normal,
-                modifier = Modifier.padding(vertical = 8.dp)
+        // Logs List Items
+        displayLogs.forEachIndexed { index, log ->
+            LogItemRow(
+                log = log,
+                isHindi = isHindi,
+                isDark = isDark,
+                textColorSecondary = textColorSecondary
             )
-        } else {
-            Column(
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                logsList.forEachIndexed { index, log ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Left Icon with subtle colored circle background
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(log.color.copy(alpha = 0.08f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = log.icon,
-                                contentDescription = null,
-                                tint = log.color,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
 
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        // Middle Content Column
-                        Column(
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(
-                                text = if (isHindi) log.titleHi else log.title,
-                                color = if (isDark) AppColors.PureWhite else AppColors.NearBlack,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = if (isHindi) log.timeHi else log.time,
-                                color = textColorSecondary,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Normal
-                            )
-                        }
-                    }
-                }
+            if (index < displayLogs.size - 1) {
+                Spacer(modifier = Modifier.height(12.dp))
             }
+        }
+    }
+}
+
+@Composable
+private fun LogItemRow(
+    log: LogItem,
+    isHindi: Boolean,
+    isDark: Boolean,
+    textColorSecondary: Color
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Icon Circle
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(log.color.copy(alpha = if (isDark) 0.15f else 0.1f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = log.icon,
+                contentDescription = null,
+                tint = log.color,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        // Text Info
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = if (isHindi) log.titleHi else log.title,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (isDark) AppColors.PureWhite else Color(0xFF262626),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            Text(
+                text = if (isHindi) log.timeHi else log.time,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Normal,
+                color = textColorSecondary
+            )
         }
     }
 }

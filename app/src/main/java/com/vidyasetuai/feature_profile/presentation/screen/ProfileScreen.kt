@@ -136,11 +136,25 @@ fun ProfileMediaHeader(
     isUploadingCover: Boolean,
     onProfileClick: () -> Unit,
     onCoverClick: () -> Unit,
+    profileLocalPath: String? = null,
+    coverLocalPath: String? = null,
     modifier: Modifier = Modifier
 ) {
     val isDark = isSystemInDarkTheme()
     val avatarBg = if (isDark) Color(0xFF25352E) else Color(0xFFE8F8F5)
     val borderCol = MaterialTheme.colorScheme.background
+
+    val coverModel = remember(coverLocalPath, coverPhotoUrl) {
+        if (!coverLocalPath.isNullOrBlank() && java.io.File(coverLocalPath).exists()) {
+            java.io.File(coverLocalPath)
+        } else coverPhotoUrl
+    }
+
+    val profileModel = remember(profileLocalPath, profilePicUrl) {
+        if (!profileLocalPath.isNullOrBlank() && java.io.File(profileLocalPath).exists()) {
+            java.io.File(profileLocalPath)
+        } else profilePicUrl
+    }
 
     Box(
         modifier = modifier
@@ -151,14 +165,16 @@ fun ProfileMediaHeader(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(170.dp)
+                .padding(horizontal = 14.dp, vertical = 6.dp)
+                .height(160.dp)
+                .clip(RoundedCornerShape(20.dp))
                 .background(
                     if (isDark) Color(0xFF1F2E28) else Color(0xFFF0F4F2)
                 )
         ) {
-            if (coverPhotoUrl.isNotEmpty()) {
+            if (coverPhotoUrl.isNotEmpty() || !coverLocalPath.isNullOrBlank()) {
                 AsyncImage(
-                    model = coverPhotoUrl,
+                    model = coverModel,
                     contentDescription = "Cover Photo",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
@@ -221,9 +237,9 @@ fun ProfileMediaHeader(
                     .clip(CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                if (profilePicUrl.isNotEmpty()) {
+                if (profilePicUrl.isNotEmpty() || !profileLocalPath.isNullOrBlank()) {
                     AsyncImage(
-                        model = profilePicUrl,
+                        model = profileModel,
                         contentDescription = "Profile Picture",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
@@ -287,6 +303,7 @@ fun ProfileScreen(
     onCaseStudyClick: (String) -> Unit = {},
     onInspirationsClick: (String, Int) -> Unit = { _, _ -> },
     onEditModeChange: (Boolean) -> Unit = {},
+    isEditModeRequested: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -302,7 +319,7 @@ fun ProfileScreen(
 
     val state by viewModel.uiState.collectAsState()
 
-    var isEditMode by remember { mutableStateOf(false) }
+    var isEditMode by remember(isEditModeRequested) { mutableStateOf(isEditModeRequested) }
     val setEditMode = { value: Boolean ->
         isEditMode = value
         onEditModeChange(value)
@@ -525,7 +542,9 @@ fun ProfileOverviewMode(
             isUploadingProfile = false,
             isUploadingCover = false,
             onProfileClick = {},
-            onCoverClick = {}
+            onCoverClick = {},
+            profileLocalPath = state.profile?.profilePictureLocalPath,
+            coverLocalPath = state.profile?.coverPhotoLocalPath
         )
         Spacer(modifier = Modifier.height(12.dp))
         Text(
@@ -581,21 +600,6 @@ fun ProfileOverviewMode(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-
-        // Edit Profile Button
-        Button(
-            onClick = { onEditModeChange(true) },
-            colors = ButtonDefaults.buttonColors(containerColor = AppColors.EmeraldGreen),
-            shape = RoundedCornerShape(8.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .height(44.dp)
-        ) {
-            Text(text = if (isHindi) "प्रोफ़ाइल संपादित करें" else "Edit Profile", color = Color.White, fontWeight = FontWeight.Bold)
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
 
         // Tabs for Experiences / Case Studies
         var activeOverviewTab by remember { mutableStateOf("experiences") } // "experiences" or "case_studies"

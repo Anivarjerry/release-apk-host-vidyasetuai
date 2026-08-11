@@ -527,6 +527,23 @@ class InstitutionRepositoryImpl(
         local.map { it.toDomain() }
     }
     
+    override suspend fun updateLeaveStatus(leaveId: String, status: String, remarks: String?, actionBy: String): Result<Unit> = runCatching {
+        val existing = dao.getAllLeaves().find { it.id == leaveId }
+        if (existing != null) {
+            val isoNow = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US).format(java.util.Date())
+            val updated = existing.copy(
+                status = status,
+                actionRemarks = remarks?.takeIf { it.isNotBlank() },
+                actionBy = actionBy.takeIf { it.isNotBlank() },
+                actionAt = isoNow,
+                lastSyncedAt = System.currentTimeMillis(),
+                syncState = "PENDING_UPDATE"
+            )
+            dao.insertLeave(updated)
+            syncLeavesOffline()
+        }
+    }
+    
     override suspend fun syncLeavesOffline(): Result<Unit> = runCatching {
         android.util.Log.d("OfflineSync", "syncLeavesOffline: Started checking unsynced leaves")
         val unsynced = dao.getUnsyncedLeaves()
@@ -630,6 +647,7 @@ class InstitutionRepositoryImpl(
                         organizationId = payment.organization_id,
                         activeSessionId = payment.active_session_id,
                         studentId = payment.student_id,
+                        feeHeadTypeId = payment.fee_head_type_id,
                         receiptNumber = payment.receipt_number,
                         paymentMode = payment.payment_mode,
                         paymentDate = payment.payment_date,
@@ -917,12 +935,19 @@ class InstitutionRepositoryImpl(
     }
     
     override suspend fun getOrganizations(parentOrgId: String, forceRefresh: Boolean): Result<List<ChildOrg>> = runCatching {
-        val workspaces = dao.getAllWorkspaces().filter { it.parentOrganizationId == parentOrgId }
-        workspaces.mapNotNull { ws ->
-            ws.childOrganizationId?.let { id ->
-                ChildOrg(id = id, name = ws.childOrganizationName ?: "")
-            }
-        }.distinctBy { it.id }
+        val setups = dao.getAllChildOrgSetups()
+        if (setups.isNotEmpty()) {
+            setups.map { setup ->
+                ChildOrg(id = setup.organizationId, name = setup.organizationName ?: "")
+            }.distinctBy { it.id }
+        } else {
+            val workspaces = dao.getAllWorkspaces().filter { it.parentOrganizationId == parentOrgId }
+            workspaces.mapNotNull { ws ->
+                ws.childOrganizationId?.let { id ->
+                    ChildOrg(id = id, name = ws.childOrganizationName ?: "")
+                }
+            }.distinctBy { it.id }
+        }
     }
     
     override suspend fun getClasses(orgId: String, forceRefresh: Boolean): Result<List<OrgClass>> = runCatching {
@@ -1276,6 +1301,7 @@ class InstitutionRepositoryImpl(
             childOrgId = if (orgId.isEmpty()) null else orgId,
             userRole = userRole,
             userId = userId,
+            staffId = workspace.staffId ?: workspace.id,
             lastSyncedAt = null // Fresh sync pulls all
         )
         
@@ -1425,6 +1451,7 @@ class InstitutionRepositoryImpl(
                 organizationId = pay.organization_id,
                 activeSessionId = pay.active_session_id,
                 studentId = pay.student_id,
+                feeHeadTypeId = pay.fee_head_type_id,
                 receiptNumber = pay.receipt_number,
                 paymentMode = pay.payment_mode,
                 paymentDate = pay.payment_date,
@@ -1544,7 +1571,7 @@ class InstitutionRepositoryImpl(
                 isActive = staff.is_active,
                 isDeleted = staff.is_deleted,
                 roleId = staff.role_id,
-                roleName = null,
+                roleName = staff.role_name,
                 subjectId = staff.subject_id,
                 subjectName = null,
                 addressAreaId = staff.address_area_id,
@@ -1749,6 +1776,125 @@ class InstitutionRepositoryImpl(
             )
         }
 
+        // 16. Map Staff Salaries
+        val localStaffSalaries = payload.staff_salaries.map { s ->
+            LocalParentStaffSalaryEntity(
+                id = s.id,
+                parentOrganizationId = s.parent_organization_id,
+                activeSessionId = s.active_session_id,
+                staffId = s.staff_id,
+                monthlySalary = s.monthly_salary,
+                bankName = s.bank_name,
+                bankAccountNumber = s.bank_account_number,
+                ifscCode = s.ifsc_code,
+                upiId = s.upi_id,
+                isActive = s.is_active,
+                isDeleted = s.is_deleted
+            )
+        }
+
+        // 17. Map Staff Salary Payouts
+        val localStaffSalaryPayouts = payload.staff_salary_payouts.map { po ->
+            LocalParentStaffSalaryPayoutEntity(
+                id = po.id,
+                parentOrganizationId = po.parent_organization_id,
+                activeSessionId = po.active_session_id,
+                staffId = po.staff_id,
+                payoutMonth = po.payout_month,
+                payoutYear = po.payout_year,
+                salaryAmount = po.salary_amount,
+                bonus = po.bonus,
+                deduction = po.deduction,
+                isLocked = po.is_locked,
+                lockedAt = po.locked_at,
+                lockedBy = po.locked_by,
+                isActive = po.is_active,
+                isDeleted = po.is_deleted
+            )
+        }
+
+        // 18. Map Staff Salary Payments
+        val localStaffSalaryPayments = payload.staff_salary_payments.map { pm ->
+            LocalParentStaffSalaryPaymentEntity(
+                id = pm.id,
+                parentOrganizationId = pm.parent_organization_id,
+                activeSessionId = pm.active_session_id,
+                staffId = pm.staff_id,
+                paymentDate = pm.payment_date,
+                amountPaid = pm.amount_paid,
+                paymentMode = pm.payment_mode,
+                cashPaidByUserId = pm.cash_paid_by_user_id,
+                chequeNumber = pm.cheque_number,
+                chequeDate = pm.cheque_date,
+                chequeBankName = pm.cheque_bank_name,
+                onlineTransactionId = pm.online_transaction_id,
+                onlinePaymentApp = pm.online_payment_app,
+                remarks = pm.remarks,
+                isActive = pm.is_active,
+                isDeleted = pm.is_deleted
+            )
+        }
+
+        // 19. Map Staff Bus Enrollments
+        val localStaffBusEnrollments = payload.staff_bus_enrollments.map { be ->
+            LocalParentStaffBusEnrollmentEntity(
+                id = be.id,
+                parentOrganizationId = be.parent_organization_id,
+                organizationId = be.organization_id,
+                activeSessionId = be.active_session_id,
+                staffId = be.staff_id,
+                busId = be.bus_id,
+                joiningDate = be.joining_date,
+                monthlyFare = be.monthly_fare,
+                autoDeductFromSalary = be.auto_deduct_from_salary,
+                isActive = be.is_active,
+                isDeleted = be.is_deleted
+            )
+        }
+
+        // 20. Map Staff Bus Fares
+        val localStaffBusFares = payload.staff_bus_fares.map { bf ->
+            LocalParentStaffBusFareEntity(
+                id = bf.id,
+                parentOrganizationId = bf.parent_organization_id,
+                activeSessionId = bf.active_session_id,
+                staffId = bf.staff_id,
+                busId = bf.bus_id,
+                fareAmount = bf.fare_amount,
+                isActive = bf.is_active,
+                isDeleted = bf.is_deleted
+            )
+        }
+
+        // 21. Map Global Sessions
+        var sessionsList = payload.global_sessions
+        if (sessionsList.isEmpty()) {
+            try {
+                sessionsList = com.vidyasetuai.core.network.SupabaseClient.client.from("global_sessions")
+                    .select {
+                        filter {
+                            eq("is_deleted", false)
+                        }
+                    }.decodeList<com.vidyasetuai.feature_institution.data.remote.dto.GlobalSessionDto>()
+                android.util.Log.d("OfflineSync", "Fetched global_sessions directly via REST fallback count: ${sessionsList.size}")
+            } catch (e: Exception) {
+                android.util.Log.e("OfflineSync", "Fallback direct fetch of global_sessions failed", e)
+            }
+        }
+
+        val localGlobalSessions = sessionsList.map { gs ->
+            com.vidyasetuai.feature_institution.data.local.entity.LocalGlobalSessionEntity(
+                id = gs.id,
+                name = gs.name,
+                isActive = gs.is_active,
+                isDeleted = gs.is_deleted,
+                startingDate = gs.starting_date,
+                endingDate = gs.ending_date,
+                updateBeforeEndingDays = gs.update_before_ending_days
+            )
+        }
+
+        android.util.Log.d("OfflineSync", "Global sessions to insert in Room DB count: ${localGlobalSessions.size}")
         android.util.Log.d("OfflineSync", "Overwriting local database atomically with replaceWorkspaceDataPayload transaction...")
         dao.replaceWorkspaceDataPayload(
             setups = localSetups,
@@ -1765,11 +1911,208 @@ class InstitutionRepositoryImpl(
             tripLogs = localTripLogs,
             calendarEvents = localCalendarEvents,
             examSettings = localExamSettings,
-            remarks = localRemarks
+            remarks = localRemarks,
+            staffSalaries = localStaffSalaries,
+            staffSalaryPayouts = localStaffSalaryPayouts,
+            staffSalaryPayments = localStaffSalaryPayments,
+            staffBusEnrollments = localStaffBusEnrollments,
+            staffBusFares = localStaffBusFares,
+            globalSessions = localGlobalSessions
         )
 
-        
+        // 22. Map Staff Audio Beacons
+        val localStaffAudioBeacons = payload.staff_audio_beacons.map { b ->
+            com.vidyasetuai.feature_institution.data.local.entity.LocalStaffAudioBeaconEntity(
+                staffId = b.staff_id,
+                parentOrganizationId = b.parent_organization_id,
+                audioCode = b.audio_code,
+                secretSalt = b.secret_salt,
+                validUntil = b.valid_until,
+                isActive = b.is_active,
+                lastSyncedAt = System.currentTimeMillis()
+            )
+        }
+        if (localStaffAudioBeacons.isNotEmpty()) {
+            dao.insertStaffAudioBeacons(localStaffAudioBeacons)
+            android.util.Log.d("OfflineSync", "Staff audio beacons inserted in Room DB count: ${localStaffAudioBeacons.size}")
+        }
+
         android.util.Log.d("OfflineSync", "Consolidated Sync Workspace Completed Successfully!")
+    }
+
+    override suspend fun getStaffSalaryOverviews(parentOrgId: String, month: Int, year: Int): Result<List<StaffSalaryOverview>> = runCatching {
+        val staffList = dao.getStaffProfiles(parentOrgId)
+        val salaries = dao.getStaffSalaries(parentOrgId).associateBy { it.staffId }
+        val allPayouts = if (month == 0) dao.getAllStaffSalaryPayouts(parentOrgId) else dao.getStaffSalaryPayoutsForMonth(parentOrgId, month, year)
+        val payoutsByStaff = allPayouts.groupBy { it.staffId }
+        val payments = dao.getStaffSalaryPayments(parentOrgId).groupBy { it.staffId }
+        val busEnrollments = dao.getStaffBusEnrollments(parentOrgId).associateBy { it.staffId }
+
+        staffList.map { staff ->
+            val salaryConfig = salaries[staff.id]
+            val staffPayments = payments[staff.id] ?: emptyList()
+            val busEnrollment = busEnrollments[staff.id]
+
+            val baseSalary = salaryConfig?.monthlySalary ?: 0.0
+            val busDeduction = if (busEnrollment != null && busEnrollment.autoDeductFromSalary && busEnrollment.isActive) {
+                busEnrollment.monthlyFare
+            } else 0.0
+
+            val (hasPayout, netPayable, currentPayout) = if (month == 0) {
+                val staffPayoutsList = payoutsByStaff[staff.id] ?: emptyList()
+                val hasP = staffPayoutsList.isNotEmpty()
+                val netP = staffPayoutsList.sumOf { (it.salaryAmount + it.bonus - it.deduction).coerceAtLeast(0.0) }
+                Triple(hasP, netP, staffPayoutsList.lastOrNull())
+            } else {
+                val p = payoutsByStaff[staff.id]?.firstOrNull()
+                val hasP = (p != null)
+                val netP = if (hasP) (p!!.salaryAmount + p.bonus - p.deduction).coerceAtLeast(0.0) else 0.0
+                Triple(hasP, netP, p)
+            }
+
+            val totalPaid = staffPayments.sumOf { it.amountPaid }
+            val dueBalance = if (hasPayout) {
+                (netPayable - totalPaid).coerceAtLeast(0.0)
+            } else {
+                0.0
+            }
+
+            val status = when {
+                !hasPayout -> "NOT_GENERATED"
+                totalPaid >= netPayable && netPayable > 0.0 -> "PAID"
+                totalPaid > 0.0 -> "PARTIAL"
+                else -> "PENDING"
+            }
+
+            StaffSalaryOverview(
+                staff = staff,
+                salaryConfig = salaryConfig,
+                busEnrollment = busEnrollment,
+                currentPayout = currentPayout,
+                payments = staffPayments,
+                baseMonthlySalary = baseSalary,
+                busDeductionAmount = busDeduction,
+                netSalaryPayable = netPayable,
+                totalAmountPaid = totalPaid,
+                dueBalance = dueBalance,
+                hasPayoutGenerated = hasPayout,
+                paymentStatus = status
+            )
+        }
+    }
+
+    override suspend fun recordStaffSalaryPayment(
+        parentOrgId: String,
+        sessionId: String,
+        staffId: String,
+        amountPaid: Double,
+        paymentMode: String,
+        paymentDate: String,
+        chequeNumber: String?,
+        chequeDate: String?,
+        chequeBankName: String?,
+        onlineTransactionId: String?,
+        onlinePaymentApp: String?,
+        remarks: String?,
+        userId: String
+    ): Result<Unit> = runCatching {
+        val newPaymentId = java.util.UUID.randomUUID().toString()
+        val localPayment = LocalParentStaffSalaryPaymentEntity(
+            id = newPaymentId,
+            parentOrganizationId = parentOrgId,
+            activeSessionId = sessionId,
+            staffId = staffId,
+            paymentDate = paymentDate,
+            amountPaid = amountPaid,
+            paymentMode = paymentMode,
+            cashPaidByUserId = if (paymentMode.equals("Cash", ignoreCase = true)) userId else null,
+            chequeNumber = chequeNumber,
+            chequeDate = chequeDate,
+            chequeBankName = chequeBankName,
+            onlineTransactionId = onlineTransactionId,
+            onlinePaymentApp = onlinePaymentApp,
+            remarks = remarks,
+            isActive = true,
+            isDeleted = false,
+            lastSyncedAt = System.currentTimeMillis(),
+            syncState = "SYNCED"
+        )
+        dao.insertStaffSalaryPayments(listOf(localPayment))
+
+        try {
+            val dto = ParentStaffSalaryPaymentDto(
+                id = newPaymentId,
+                parent_organization_id = parentOrgId,
+                active_session_id = sessionId,
+                staff_id = staffId,
+                payment_date = paymentDate,
+                amount_paid = amountPaid,
+                payment_mode = paymentMode,
+                cash_paid_by_user_id = if (paymentMode.equals("Cash", ignoreCase = true)) userId else null,
+                cheque_number = chequeNumber,
+                cheque_date = chequeDate,
+                cheque_bank_name = chequeBankName,
+                online_transaction_id = onlineTransactionId,
+                online_payment_app = onlinePaymentApp,
+                remarks = remarks,
+                is_active = true,
+                is_deleted = false
+            )
+            SupabaseClient.client.from("organization_parent_staff_salary_payments").insert(dto)
+        } catch (e: Exception) {
+            android.util.Log.e("SalaryPayment", "Failed to sync salary payment to Supabase, saved locally", e)
+        }
+    }
+
+    override suspend fun setStaffBaseSalary(
+        parentOrgId: String,
+        sessionId: String,
+        staffId: String,
+        monthlySalary: Double,
+        bankName: String?,
+        accountNumber: String?,
+        ifscCode: String?,
+        upiId: String?,
+        userId: String
+    ): Result<Unit> = runCatching {
+        val existing = dao.getStaffSalaryByStaffId(staffId)
+        val salaryId = existing?.id ?: java.util.UUID.randomUUID().toString()
+
+        val localSalary = LocalParentStaffSalaryEntity(
+            id = salaryId,
+            parentOrganizationId = parentOrgId,
+            activeSessionId = sessionId,
+            staffId = staffId,
+            monthlySalary = monthlySalary,
+            bankName = bankName,
+            bankAccountNumber = accountNumber,
+            ifscCode = ifscCode,
+            upiId = upiId,
+            isActive = true,
+            isDeleted = false,
+            lastSyncedAt = System.currentTimeMillis(),
+            syncState = "SYNCED"
+        )
+        dao.insertStaffSalaries(listOf(localSalary))
+
+        try {
+            val dto = ParentStaffSalaryDto(
+                id = salaryId,
+                parent_organization_id = parentOrgId,
+                active_session_id = sessionId,
+                staff_id = staffId,
+                monthly_salary = monthlySalary,
+                bank_name = bankName,
+                bank_account_number = accountNumber,
+                ifsc_code = ifscCode,
+                upi_id = upiId,
+                is_active = true,
+                is_deleted = false
+            )
+            SupabaseClient.client.from("organization_parent_staff_salaries").upsert(dto)
+        } catch (e: Exception) {
+            android.util.Log.e("StaffSalary", "Failed to sync staff salary config to Supabase, saved locally", e)
+        }
     }
     
     override suspend fun clearWorkspaceSpecificData(): Result<Unit> = runCatching {
@@ -1808,6 +2151,40 @@ class InstitutionRepositoryImpl(
         dao.getStaffProfiles(parentOrgId)
     }
 
+    override suspend fun insertStudentFeePayment(payment: LocalStudentFeePaymentEntity): Result<Unit> = runCatching {
+        dao.insertStudentFeePayments(listOf(payment))
+        try {
+            val dto = com.vidyasetuai.feature_institution.data.remote.dto.StudentFeePaymentDto(
+                id = payment.id,
+                organization_id = payment.organizationId,
+                active_session_id = payment.activeSessionId,
+                student_id = payment.studentId,
+                fee_head_type_id = payment.feeHeadTypeId,
+                receipt_number = payment.receiptNumber,
+                payment_mode = payment.paymentMode,
+                payment_date = payment.paymentDate,
+                amount_paid = payment.amountPaid,
+                discount_amount = payment.discountAmount,
+                fine_amount = payment.fineAmount,
+                discount_reason = payment.discountReason,
+                cash_received_by_user_id = payment.cashReceivedByUserId,
+                cash_received_by_user_name = payment.cashReceivedByUserName,
+                cheque_number = payment.chequeNumber,
+                cheque_date = payment.chequeDate,
+                cheque_bank_name = payment.chequeBankName,
+                online_transaction_id = payment.onlineTransactionId,
+                online_payment_app = payment.onlinePaymentApp,
+                remarks = payment.remarks,
+                status = payment.status,
+                is_active = payment.isActive,
+                is_deleted = payment.isDeleted
+            )
+            remoteDataSource.insertStudentFeePayment(dto)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     override suspend fun syncStudentAdditionalFees(studentId: String): Result<List<LocalStudentAdditionalFeeEntity>> = runCatching {
         val remote = remoteDataSource.fetchStudentAdditionalFees(studentId)
         val entities = remote.map { fee ->
@@ -1836,6 +2213,26 @@ class InstitutionRepositoryImpl(
         }
         dao.insertStudentAdditionalFees(entities)
         entities
+    }
+
+    override suspend fun submitAdditionalFee(fee: LocalStudentAdditionalFeeEntity): Result<Unit> = runCatching {
+        // 1. Insert into local Room DB immediately
+        dao.insertStudentAdditionalFees(listOf(fee))
+        
+        // 2. Upsert to Supabase
+        val dto = StudentAdditionalFeeDto(
+            id = fee.id,
+            organization_id = fee.organizationId,
+            active_session_id = fee.activeSessionId,
+            student_id = fee.studentId,
+            global_fee_head_id = fee.globalFeeHeadId,
+            amount = fee.amount,
+            is_active = fee.isActive,
+            is_deleted = fee.isDeleted
+        )
+        SupabaseClient.client.from("organization_student_additional_fees").upsert(dto) {
+            onConflict = "student_id, global_fee_head_id, active_session_id"
+        }
     }
 
     override suspend fun syncStudentProfileDetails(studentId: String): Result<LocalStudentEntity?> = runCatching {
@@ -2725,6 +3122,7 @@ class InstitutionRepositoryImpl(
     private fun LocalStudentFeePaymentEntity.toDomain() = FeePayment(
         id = id,
         studentId = studentId,
+        feeHeadTypeId = feeHeadTypeId,
         receiptNumber = receiptNumber,
         paymentMode = paymentMode,
         paymentDate = paymentDate,
@@ -3073,6 +3471,12 @@ class InstitutionRepositoryImpl(
             android.util.Log.e("StudentSync", "Failed to sequentially sync student details for studentId: $studentId", e)
             null
         }
+    }
+
+    override suspend fun getStaffAudioBeacon(staffId: String): Result<String?> = runCatching {
+        val beacon = dao.getStaffAudioBeaconByStaffId(staffId)
+            ?: dao.getAnyStaffAudioBeacon()
+        beacon?.audioCode
     }
 }
 

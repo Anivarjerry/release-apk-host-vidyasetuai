@@ -1,5 +1,6 @@
 package com.vidyasetuai.feature_campus.presentation.screen
 
+import com.vidyasetuai.core.ui.colors.AppColors
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
@@ -47,6 +48,8 @@ import coil.compose.AsyncImage
 import com.composables.icons.lucide.*
 import com.vidyasetuai.core.network.SupabaseStorageHelper
 import com.vidyasetuai.feature_campus.domain.model.PrivateMessage
+import com.vidyasetuai.feature_campus.presentation.component.ChatBubbleShape
+import com.vidyasetuai.feature_campus.presentation.component.whatsappWallpaper
 import com.vidyasetuai.feature_campus.presentation.event.CampusEvent
 import com.vidyasetuai.feature_campus.presentation.viewmodel.CampusViewModel
 import kotlinx.coroutines.delay
@@ -69,6 +72,7 @@ fun PrivateChatRoomScreen(
     currentLanguage: String,
     currentTheme: String,
     onBack: () -> Unit,
+    onOpenUserProfile: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isHindi = currentLanguage == "hi"
@@ -80,7 +84,29 @@ fun PrivateChatRoomScreen(
     }
 
     val state by viewModel.state.collectAsState()
-    val partner = state.activePrivateUser ?: return
+    val partner = state.activePrivateUser
+
+    DisposableEffect(state.activePrivateRoomId) {
+        val roomId = state.activePrivateRoomId
+        if (roomId != null) {
+            com.vidyasetuai.core.notification.handler.ChatNotificationHandler.activeChatRoomId = roomId
+        }
+        onDispose {
+            com.vidyasetuai.core.notification.handler.ChatNotificationHandler.activeChatRoomId = null
+        }
+    }
+
+    if (partner == null) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(if (isDark) Color(0xFF121212) else MaterialTheme.colorScheme.background),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator(color = AppColors.EmeraldGreen)
+        }
+        return
+    }
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -94,10 +120,17 @@ fun PrivateChatRoomScreen(
     var cropScale by remember { mutableFloatStateOf(1f) }
     var cropOffset by remember { mutableStateOf(Offset.Zero) }
 
-    // Scroll to bottom when messages list size changes
+    var isInitialScrollDone by remember { mutableStateOf(false) }
+
+    // Instant 0ms scroll on room open, animated scroll only for subsequent messages
     LaunchedEffect(state.privateMessages.size) {
         if (state.privateMessages.isNotEmpty()) {
-            listState.animateScrollToItem(state.privateMessages.size - 1)
+            if (!isInitialScrollDone) {
+                listState.scrollToItem(state.privateMessages.size - 1)
+                isInitialScrollDone = true
+            } else {
+                listState.animateScrollToItem(state.privateMessages.size - 1)
+            }
         }
     }
 
@@ -137,18 +170,20 @@ fun PrivateChatRoomScreen(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             snackbarHost = {
                 state.errorMessage?.let { error ->
-                    Snackbar(
-                        modifier = Modifier.padding(16.dp),
-                        action = {
-                            TextButton(onClick = { viewModel.onEvent(CampusEvent.DismissError) }) {
-                                Text(
-                                    text = if (isHindi) "ठीक है" else "Dismiss",
-                                    color = Color(0xFF00A884)
-                                )
+                    if (!error.contains("row level security") && !error.contains("Authorization=") && !error.contains("Bearer")) {
+                        Snackbar(
+                            modifier = Modifier.padding(16.dp),
+                            action = {
+                                TextButton(onClick = { viewModel.onEvent(CampusEvent.DismissError) }) {
+                                    Text(
+                                        text = if (isHindi) "ठीक है" else "Dismiss",
+                                        color = Color(0xFF00A884)
+                                    )
+                                }
                             }
+                        ) {
+                            Text(text = error, fontSize = 13.sp)
                         }
-                    ) {
-                        Text(text = error, fontSize = 13.sp)
                     }
                 }
             }
@@ -177,48 +212,10 @@ fun PrivateChatRoomScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
-                    contentPadding = PaddingValues(top = 96.dp, bottom = 10.dp)
+                    contentPadding = PaddingValues(top = 118.dp, bottom = 10.dp)
                 ) {
-                    item {
-                        // Expiry Banner inside message list so it scrolls naturally or stays at top
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isDark) Color(0xFF1E2229) else Color(0xFFFFFEFC).copy(alpha = 0.9f)
-                            ),
-                            border = BorderStroke(
-                                0.5.dp,
-                                if (isDark) Color(0xFF2A3942) else Color(0xFFE1E6EB)
-                            ),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Lucide.Info,
-                                    contentDescription = null,
-                                    tint = Color(0xFF00A884),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = if (isHindi) 
-                                        "प्राइवेट चैट के संदेश 24 घंटे में स्वतः मिट जाएंगे। स्थायी रूप से रखने के लिए संदेश के पास बने सेव (बुकमार्क) आइकन पर क्लिक करें।" 
-                                    else 
-                                        "Messages disappear in 24 hours. Tap the save (bookmark) icon to keep a message permanently.",
-                                    fontSize = 11.sp,
-                                    color = if (isDark) Color(0xFF8696A0) else Color(0xFF54656F),
-                                    lineHeight = 15.sp
-                                )
-                            }
-                        }
-                    }
 
-                    items(state.privateMessages) { message ->
+                    items(state.privateMessages, key = { it.id }) { message ->
                         val isMe = message.senderId == userId
                         PrivateMessageBubbleItem(
                             message = message,
@@ -248,7 +245,7 @@ fun PrivateChatRoomScreen(
                     )
                 }
 
-                // iOS WhatsApp Styled Input Bar
+                // iOS WhatsApp Styled Input Bar or Locked Notice Banner
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -257,98 +254,132 @@ fun PrivateChatRoomScreen(
                     tonalElevation = 0.dp,
                     shadowElevation = 0.dp
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val inputBg = if (isDark) Color(0xFF2A3942) else Color.White
-
-                        // Attachment Plus Button on left (iOS Style)
-                        IconButton(
-                            onClick = { imagePickerLauncher.launch("image/*") },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(
-                                imageVector = Lucide.Plus,
-                                contentDescription = "Attach",
-                                tint = if (isDark) Color(0xFF8696A0) else Color(0xFF007AFF),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        // Input Text Capsule
-                        Row(
+                    if (!state.isCurrentRoomMutual) {
+                        Surface(
                             modifier = Modifier
-                                .weight(1f)
-                                .heightIn(min = 36.dp)
-                                .background(inputBg, RoundedCornerShape(18.dp))
-                                .border(
-                                    1.dp,
-                                    if (isDark) Color(0xFF3B4A54) else Color(0xFFE1E6EB),
-                                    RoundedCornerShape(18.dp)
-                                )
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            color = if (isDark) Color(0xFF1E2229) else Color(0xFFFFFBEB),
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(0.5.dp, if (isDark) Color(0xFF3B4A54) else Color(0xFFFCD34D))
                         ) {
-                            Box(
-                                modifier = Modifier.weight(1f),
-                                contentAlignment = Alignment.CenterStart
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                if (textInput.isEmpty()) {
-                                    Text(
-                                        text = if (isHindi) "अपना संदेश यहाँ लिखें..." else "Write your message here...",
-                                        fontSize = 14.sp,
-                                        color = if (isDark) Color(0xFF8696A0) else Color(0xFF8E8E93)
-                                    )
-                                }
-                                BasicTextField(
-                                    value = textInput,
-                                    onValueChange = { textInput = it },
-                                    textStyle = TextStyle(
-                                        color = if (isDark) Color.White else Color.Black,
-                                        fontSize = 14.sp
-                                    ),
-                                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-                                    maxLines = 4,
-                                    modifier = Modifier.fillMaxWidth()
+                                Icon(
+                                    imageVector = Lucide.Lock,
+                                    contentDescription = null,
+                                    tint = Color(0xFFD97706),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (isHindi)
+                                        "चैट अनलॉक करने के लिए ${partner.firstName ?: "यूज़र"} के Inspire Back करने का इंतज़ार करें।"
+                                    else
+                                        "Waiting for ${partner.firstName ?: "User"} to inspire back to unlock 1-on-1 chat.",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = if (isDark) Color(0xFFFDE68A) else Color(0xFF92400E),
+                                    lineHeight = 16.sp
                                 )
                             }
                         }
-
-                        Spacer(modifier = Modifier.width(6.dp))
-
-                        // Solid Green Round Send Button
-                        val sendEnabled = textInput.isNotBlank() && !state.isUploadingPrivateMedia
-                        Box(
+                    } else {
+                        Row(
                             modifier = Modifier
-                                .size(38.dp)
-                                .background(
-                                    color = if (sendEnabled) Color(0xFF00A884) else Color(0xFF8696A0).copy(alpha = 0.2f),
-                                    shape = CircleShape
-                                )
-                                .clickable(
-                                    enabled = sendEnabled,
-                                    onClick = {
-                                        viewModel.onEvent(
-                                            CampusEvent.SendPrivateMessage(
-                                                activeUserId = userId,
-                                                text = textInput.trim(),
-                                                mediaUrl = null
-                                            )
-                                        )
-                                        textInput = ""
-                                    }
-                                ),
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Lucide.Send,
-                                contentDescription = "Send",
-                                tint = if (sendEnabled) Color.White else if (isDark) Color(0xFF8696A0) else Color(0xFF54656F),
-                                modifier = Modifier.size(16.dp)
-                            )
+                            val inputBg = if (isDark) Color(0xFF2A3942) else Color.White
+
+                            // Attachment Plus Button on left (iOS Style)
+                            IconButton(
+                                onClick = { imagePickerLauncher.launch("image/*") },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Lucide.Plus,
+                                    contentDescription = "Attach",
+                                    tint = if (isDark) Color(0xFF8696A0) else Color(0xFF007AFF),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            // Input Text Capsule
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 36.dp)
+                                    .background(inputBg, RoundedCornerShape(18.dp))
+                                    .border(
+                                        1.dp,
+                                        if (isDark) Color(0xFF3B4A54) else Color(0xFFE1E6EB),
+                                        RoundedCornerShape(18.dp)
+                                    )
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier.weight(1f),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    if (textInput.isEmpty()) {
+                                        Text(
+                                            text = if (isHindi) "अपना संदेश यहाँ लिखें..." else "Write your message here...",
+                                            fontSize = 14.sp,
+                                            color = if (isDark) Color(0xFF8696A0) else Color(0xFF8E8E93)
+                                        )
+                                    }
+                                    BasicTextField(
+                                        value = textInput,
+                                        onValueChange = { textInput = it },
+                                        textStyle = TextStyle(
+                                            color = if (isDark) Color.White else Color.Black,
+                                            fontSize = 14.sp
+                                        ),
+                                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                                        maxLines = 4,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(6.dp))
+
+                            // Solid Green Round Send Button
+                            val sendEnabled = textInput.isNotBlank() && !state.isUploadingPrivateMedia
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .background(
+                                        color = if (sendEnabled) Color(0xFF00A884) else Color(0xFF8696A0).copy(alpha = 0.2f),
+                                        shape = CircleShape
+                                    )
+                                    .clickable(
+                                        enabled = sendEnabled,
+                                        onClick = {
+                                            viewModel.onEvent(
+                                                CampusEvent.SendPrivateMessage(
+                                                    activeUserId = userId,
+                                                    text = textInput.trim(),
+                                                    mediaUrl = null
+                                                )
+                                            )
+                                            textInput = ""
+                                        }
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Lucide.Send,
+                                    contentDescription = "Send",
+                                    tint = if (sendEnabled) Color.White else if (isDark) Color(0xFF8696A0) else Color(0xFF54656F),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -411,65 +442,118 @@ fun PrivateChatRoomScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
 
-                    Box(
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .background(if (isDark) Color(0xFF2C2C2E) else Color(0xFFF2F2F7))
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { onOpenUserProfile(partner.userId) }
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
                     ) {
-                        if (!partner.profilePictureUrl.isNullOrEmpty()) {
-                            AsyncImage(
-                                model = partner.profilePictureUrl,
-                                contentDescription = null,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Lucide.User,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                modifier = Modifier.size(16.dp).align(Alignment.Center)
-                            )
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.width(10.dp))
-                    
-                    Column(
-                        horizontalAlignment = Alignment.Start
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = partner.fullName ?: partner.username ?: "User",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isDark) Color.White else Color.Black,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            if (partner.isVerified) {
-                                Spacer(modifier = Modifier.width(3.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(if (isDark) Color(0xFF2C2C2E) else Color(0xFFF2F2F7))
+                        ) {
+                            if (!partner.profilePictureUrl.isNullOrEmpty()) {
+                                AsyncImage(
+                                    model = partner.profilePictureUrl,
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
                                 Icon(
-                                    imageVector = Lucide.Check,
-                                    contentDescription = "Verified",
-                                    tint = Color(0xFF00A884),
-                                    modifier = Modifier
-                                        .size(12.dp)
-                                        .background(Color(0xFF00A884).copy(alpha = 0.1f), CircleShape)
-                                        .padding(1.dp)
+                                    imageVector = Lucide.User,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(16.dp).align(Alignment.Center)
                                 )
                             }
                         }
-                        Text(
-                            text = if (isHindi) "प्राइवेट चैट" else "Private Chat",
-                            fontSize = 9.sp,
-                            color = Color(0xFF00A884),
-                            fontWeight = FontWeight.Bold
-                        )
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        Column(
+                            horizontalAlignment = Alignment.Start
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = partner.fullName ?: partner.username ?: "User",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isDark) Color.White else Color.Black,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (partner.isVerified) {
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Icon(
+                                        imageVector = Lucide.Check,
+                                        contentDescription = "Verified",
+                                        tint = Color(0xFF00A884),
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .background(Color(0xFF00A884).copy(alpha = 0.1f), CircleShape)
+                                            .padding(1.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = if (isHindi) "🔒 एंड-टू-एंड एन्क्रिप्टेड" else "🔒 End-to-End Encrypted",
+                                fontSize = 9.sp,
+                                color = Color(0xFF00A884),
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
+                }
+            }
+        }
+
+        // Fixed Sticky Disappearing Message Pill Banner below header
+        Column(
+            modifier = Modifier
+                .padding(top = 58.dp)
+                .statusBarsPadding()
+                .align(Alignment.TopCenter)
+                .zIndex(99f),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Surface(
+                color = if (isDark) Color(0xFF1E2229).copy(alpha = 0.95f) else Color(0xFFFFFEFC).copy(alpha = 0.95f),
+                shape = RoundedCornerShape(20.dp),
+                shadowElevation = 4.dp,
+                border = BorderStroke(
+                    0.5.dp,
+                    if (isDark) Color(0xFF2A3942) else Color(0xFFE1E6EB)
+                ),
+                modifier = Modifier
+                    .padding(horizontal = 20.dp)
+                    .wrapContentSize()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Lucide.Info,
+                        contentDescription = null,
+                        tint = Color(0xFF00A884),
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (isHindi) 
+                            "संदेश 24h में मिट जाएंगे। सेव करने के लिए 🔖 पर टैप करें" 
+                        else 
+                            "Messages disappear in 24h. Tap 🔖 to keep permanently",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (isDark) Color(0xFF8696A0) else Color(0xFF54656F)
+                    )
                 }
             }
         }
@@ -754,6 +838,8 @@ fun PrivateMessageBubbleItem(
 
     val bubbleAlignment = if (isMe) Alignment.End else Alignment.Start
 
+    var isExpanded by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -813,12 +899,36 @@ fun PrivateMessageBubbleItem(
                     }
 
                     if (!message.messageText.isNullOrEmpty()) {
+                        val textStr = message.messageText
+                        val isLong = remember(textStr) {
+                            textStr.length > 150 || textStr.count { it == '\n' } >= 4
+                        }
+
                         Text(
-                            text = message.messageText,
+                            text = textStr,
                             color = textColor,
                             fontSize = 14.sp,
-                            lineHeight = 18.sp
+                            lineHeight = 18.sp,
+                            maxLines = if (isLong && !isExpanded) 4 else Int.MAX_VALUE,
+                            overflow = if (isLong && !isExpanded) androidx.compose.ui.text.style.TextOverflow.Ellipsis else androidx.compose.ui.text.style.TextOverflow.Clip
                         )
+
+                        if (isLong) {
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (isExpanded) {
+                                    if (isHindi) "कम दिखाएं ▲" else "Show Less ▲"
+                                } else {
+                                    if (isHindi) "...और पढ़ें ▼" else "...Read More ▼"
+                                },
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF00A884),
+                                modifier = Modifier
+                                    .clickable { isExpanded = !isExpanded }
+                                    .padding(vertical = 2.dp)
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(3.dp))
@@ -835,33 +945,47 @@ fun PrivateMessageBubbleItem(
                         
                         if (isMe) {
                             Spacer(modifier = Modifier.width(3.dp))
-                            if (message.isFailed) {
-                                Icon(
-                                    imageVector = Lucide.CircleAlert,
-                                    contentDescription = "Failed",
-                                    tint = Color.Red,
-                                    modifier = Modifier.size(10.dp)
-                                )
-                                Spacer(modifier = Modifier.width(2.dp))
-                                Text(
-                                    text = if (isHindi) "विफल" else "Failed",
-                                    fontSize = 8.sp,
-                                    color = Color.Red
-                                )
-                            } else if (!message.isSynced) {
-                                Icon(
-                                    imageVector = Lucide.Clock,
-                                    contentDescription = "Pending",
-                                    tint = Color(0xFF8696A0),
-                                    modifier = Modifier.size(9.dp)
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Lucide.Check,
-                                    contentDescription = "Synced",
-                                    tint = Color(0xFF53BDEB),
-                                    modifier = Modifier.size(11.dp)
-                                )
+                            when (message.syncStatus) {
+                                com.vidyasetuai.feature_campus.domain.model.MessageSyncStatus.FAILED -> {
+                                    Icon(
+                                        imageVector = Lucide.CircleAlert,
+                                        contentDescription = "Failed",
+                                        tint = Color.Red,
+                                        modifier = Modifier.size(10.dp)
+                                    )
+                                }
+                                com.vidyasetuai.feature_campus.domain.model.MessageSyncStatus.PENDING -> {
+                                    Icon(
+                                        imageVector = Lucide.Clock,
+                                        contentDescription = "Pending",
+                                        tint = Color(0xFF8696A0),
+                                        modifier = Modifier.size(9.dp)
+                                    )
+                                }
+                                com.vidyasetuai.feature_campus.domain.model.MessageSyncStatus.SENT -> {
+                                    Icon(
+                                        imageVector = Lucide.Check,
+                                        contentDescription = "Sent",
+                                        tint = Color(0xFF8696A0),
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                }
+                                com.vidyasetuai.feature_campus.domain.model.MessageSyncStatus.DELIVERED -> {
+                                    Icon(
+                                        imageVector = Lucide.CheckCheck,
+                                        contentDescription = "Delivered",
+                                        tint = Color(0xFF8696A0),
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                }
+                                com.vidyasetuai.feature_campus.domain.model.MessageSyncStatus.READ -> {
+                                    Icon(
+                                        imageVector = Lucide.CheckCheck,
+                                        contentDescription = "Read",
+                                        tint = Color(0xFF53BDEB),
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                }
                             }
                         }
                     }

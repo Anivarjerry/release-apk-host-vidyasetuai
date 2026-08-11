@@ -44,52 +44,12 @@ fun StackedQuicksCard(
     // Determine the number of background pages to draw visually (max 3 layers total)
     val visualStackLayers = minOf(3, totalCount)
 
-    // The outer box must fit the offsets (max 8.dp x, 8.dp y) to prevent clipping
     Box(
         modifier = modifier
-            .width(128.dp)
-            .height(166.dp)
+            .width(115.dp)
+            .height(153.dp)
             .clickable { onClick() }
     ) {
-        // Draw background cards first (from back-most to front-most)
-        for (i in (visualStackLayers - 1) downTo 1) {
-            val offsetVal = (i * 6).dp
-            val scaleVal = 1f - (i * 0.015f)
-            val alphaVal = 1f - (i * 0.2f)
-
-            Card(
-                shape = RoundedCornerShape(10.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isDark) Color(0xFF1E1E1E) else Color(0xFFF7FAFC)
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                modifier = Modifier
-                    .size(width = 115.dp, height = 153.dp)
-                    .graphicsLayer {
-                        translationX = offsetVal.toPx()
-                        translationY = offsetVal.toPx()
-                        scaleX = scaleVal
-                        scaleY = scaleVal
-                        alpha = alphaVal
-                    }
-                    .border(
-                        width = 0.5.dp,
-                        color = dividerColor.copy(alpha = 0.25f),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-            ) {
-                // If the stacked quick has an image, show it blurred or slightly visible
-                if (i < quicks.size && !quicks[i].coverImageUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = quicks[i].coverImageUrl,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 0.6f }
-                    )
-                }
-            }
-        }
-
         // Draw top (latest) card
         Card(
             shape = RoundedCornerShape(10.dp),
@@ -98,7 +58,7 @@ fun StackedQuicksCard(
             ),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             modifier = Modifier
-                .size(width = 115.dp, height = 153.dp)
+                .fillMaxSize()
                 .border(
                     width = 0.5.dp,
                     color = dividerColor.copy(alpha = 0.35f),

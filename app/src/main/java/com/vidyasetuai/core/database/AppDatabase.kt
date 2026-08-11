@@ -11,9 +11,10 @@ import com.vidyasetuai.feature_profile.data.local.entity.UserProfileEntity
 import com.vidyasetuai.feature_journey.data.local.dao.JourneyDao
 import com.vidyasetuai.feature_journey.data.local.entity.*
 import com.vidyasetuai.feature_campus.data.local.dao.CampusDao
-import com.vidyasetuai.feature_campus.data.local.entity.RoomEntity
-import com.vidyasetuai.feature_campus.data.local.entity.MessageEntity
+import com.vidyasetuai.feature_campus.data.local.entity.PrivateRoomEntity
+import com.vidyasetuai.feature_campus.data.local.entity.PrivateMessageEntity
 import com.vidyasetuai.feature_campus.data.local.entity.ModerationSettingsEntity
+import com.vidyasetuai.feature_campus.data.local.entity.ConnectionRequestEntity
 import com.vidyasetuai.feature_institution.data.local.dao.InstitutionDao
 import com.vidyasetuai.feature_institution.data.local.entity.*
 
@@ -33,9 +34,10 @@ import com.vidyasetuai.feature_institution.data.local.entity.*
         UserJourneyEntity::class,
         UserJourneyTaskProgressEntity::class,
         UserJourneyMcqProgressEntity::class,
-        RoomEntity::class,
-        MessageEntity::class,
+        PrivateRoomEntity::class,
+        PrivateMessageEntity::class,
         ModerationSettingsEntity::class,
+        ConnectionRequestEntity::class,
 
         WorkspaceEntity::class,
         LocalChildOrgSetupEntity::class,
@@ -56,9 +58,16 @@ import com.vidyasetuai.feature_institution.data.local.entity.*
         LocalOrganizationExamEntity::class,
         LocalExamSubjectSettingEntity::class,
         LocalStudentExamMarkEntity::class,
-        LocalBusRouteEntity::class
+        LocalBusRouteEntity::class,
+        LocalParentStaffSalaryEntity::class,
+        LocalParentStaffSalaryPayoutEntity::class,
+        LocalParentStaffSalaryPaymentEntity::class,
+        LocalParentStaffBusEnrollmentEntity::class,
+        LocalParentStaffBusFareEntity::class,
+        LocalGlobalSessionEntity::class,
+        LocalStaffAudioBeaconEntity::class
     ],
-    version = 27,
+    version = 33,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

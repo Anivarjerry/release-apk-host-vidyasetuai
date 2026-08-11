@@ -3,6 +3,7 @@ package com.vidyasetuai.feature_institution.domain.model
 data class FeePayment(
     val id: String,
     val studentId: String,
+    val feeHeadTypeId: String? = null,
     val receiptNumber: String,
     val paymentMode: String, // "Cash", "Cheque", "UPI", "Online"
     val paymentDate: String,

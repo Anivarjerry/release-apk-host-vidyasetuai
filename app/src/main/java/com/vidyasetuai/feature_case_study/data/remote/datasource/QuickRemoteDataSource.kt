@@ -3,6 +3,7 @@ package com.vidyasetuai.feature_case_study.data.remote.datasource
 import com.vidyasetuai.core.network.SupabaseClient
 import com.vidyasetuai.feature_case_study.data.remote.dto.QuickDto
 import com.vidyasetuai.feature_case_study.data.remote.dto.QuickHelpfulDto
+import com.vidyasetuai.feature_case_study.data.remote.dto.QuickViewDto
 import com.vidyasetuai.feature_profile.data.remote.dto.UserProfileDto
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Columns
@@ -76,6 +77,36 @@ class QuickRemoteDataSource {
             )
         } catch (e: Exception) {
             // Ignore if already viewed to prevent duplicate views count constraint issues
+        }
+    }
+
+    suspend fun getQuickViewers(quickId: String): List<UserProfileDto> {
+        val views = SupabaseClient.client.from("quick_views")
+            .select(columns = Columns.raw("id, quick_id, user_id, created_at")) {
+                filter {
+                    eq("quick_id", quickId)
+                }
+            }.decodeList<QuickViewDto>()
+        val userIds = views.map { it.user_id }.distinct()
+        return getAuthorProfiles(userIds)
+    }
+
+    suspend fun getQuickHelpfulUsers(quickId: String): List<UserProfileDto> {
+        val helpfuls = SupabaseClient.client.from("quick_helpfuls")
+            .select(columns = Columns.raw("id, quick_id, user_id, created_at")) {
+                filter {
+                    eq("quick_id", quickId)
+                }
+            }.decodeList<QuickHelpfulDto>()
+        val userIds = helpfuls.map { it.user_id }.distinct()
+        return getAuthorProfiles(userIds)
+    }
+
+    suspend fun deleteQuick(quickId: String) {
+        SupabaseClient.client.from("quicks").delete {
+            filter {
+                eq("id", quickId)
+            }
         }
     }
 }

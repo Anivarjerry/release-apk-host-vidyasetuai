@@ -24,6 +24,12 @@ import com.vidyasetuai.core.update.presentation.download.ApkDownloadWorker
 import com.vidyasetuai.core.update.presentation.install.ApkInstaller
 import java.io.File
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
+import com.composables.icons.lucide.*
+import com.vidyasetuai.core.ui.colors.AppColors
+
 @Composable
 fun UpdateScreen(
     info: AppVersionInfo,
@@ -31,7 +37,23 @@ fun UpdateScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val destinationFile = remember { File(context.getExternalFilesDir(null), "app_update.apk") }
+    val destinationFile = remember(info.versionCode) {
+        File(context.getExternalFilesDir(null), "app_update_build_${info.versionCode}.apk")
+    }
+
+    // Automatically clean up stale/old version APK files
+    LaunchedEffect(info.versionCode) {
+        try {
+            val dir = context.getExternalFilesDir(null)
+            dir?.listFiles()?.forEach { file ->
+                if (file.name.startsWith("app_update_") && file.name != destinationFile.name) {
+                    file.delete()
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore cleanup failure
+        }
+    }
 
     val workInfos by WorkManager.getInstance(context)
         .getWorkInfosForUniqueWorkFlow("apk_download")
@@ -48,11 +70,11 @@ fun UpdateScreen(
 
     val downloadedMb = String.format("%.2f", downloadedBytes / (1024.0 * 1024.0))
     val totalMb = String.format("%.2f", totalBytes / (1024.0 * 1024.0))
+    val currentLang = context.resources.configuration.locales[0].language
 
     // Handle completed state
     LaunchedEffect(activeWorkInfo?.state) {
         if (activeWorkInfo?.state == WorkInfo.State.SUCCEEDED) {
-            // Trigger install automatically when done
             if (ApkInstaller.canInstallApk(context)) {
                 ApkInstaller.installApk(context, destinationFile)
             } else {
@@ -68,10 +90,28 @@ fun UpdateScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 24.dp, vertical = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // TOP SECTION: Header
+            Spacer(modifier = Modifier.height(16.dp))
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Lucide.Download,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
             Text(
                 text = stringResource(id = R.string.update_required),
                 fontSize = 24.sp,
@@ -79,187 +119,203 @@ fun UpdateScreen(
                 color = MaterialTheme.colorScheme.error,
                 textAlign = TextAlign.Center
             )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "v${info.versionName} (${info.versionCode})",
-                fontSize = 16.sp,
+                fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.SemiBold
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-            // Localized Release Notes
-            val currentLang = context.resources.configuration.locales[0].language
+            // MIDDLE SECTION: What's New Card (Scrollable)
             val releaseNotes = if (currentLang == "hi") info.releaseNotesHi else info.releaseNotesEn
 
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 160.dp),
+                    .weight(1f),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                 ),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(16.dp)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(18.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
                     Text(
                         text = stringResource(id = R.string.whats_new),
-                        fontSize = 14.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = releaseNotes.ifEmpty { "Performance improvements and bug fixes." },
+                        text = releaseNotes.ifEmpty { if (currentLang == "hi") "प्रदर्शन में सुधार और बग फ़िक्स किए गए हैं।" else "Performance improvements and bug fixes." },
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurface,
-                        lineHeight = 20.sp
+                        lineHeight = 22.sp
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-            // Download Status & Progress
-            if (downloadStatus == "DOWNLOADING" || downloadStatus == "PAUSED" || activeWorkInfo?.state == WorkInfo.State.RUNNING) {
-                LinearProgressIndicator(
-                    progress = progressPercent / 100f,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(8.dp)
-                        .clip(RoundedCornerShape(4.dp)),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant
-                )
+            // BOTTOM SECTION: Action Area (Pinned above Navigation Bar)
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                if (downloadStatus == "DOWNLOADING" || downloadStatus == "PAUSED" || activeWorkInfo?.state == WorkInfo.State.RUNNING) {
+                    LinearProgressIndicator(
+                        progress = progressPercent / 100f,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        color = AppColors.EmeraldGreen,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = if (downloadStatus == "PAUSED") {
-                            stringResource(id = R.string.download_paused)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = if (downloadStatus == "PAUSED") {
+                                stringResource(id = R.string.download_paused)
+                            } else {
+                                stringResource(id = R.string.downloading_update)
+                            },
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "$progressPercent% ($downloadedMb MB / $totalMb MB)",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        if (downloadStatus == "PAUSED") {
+                            Button(
+                                onClick = { triggerDownload(context, info.apkUrl, destinationFile.absolutePath) },
+                                modifier = Modifier.weight(1f).height(48.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = AppColors.EmeraldGreen),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text(text = stringResource(id = R.string.resume), fontWeight = FontWeight.Bold)
+                            }
                         } else {
-                            stringResource(id = R.string.downloading_update)
-                        },
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "$progressPercent% ($downloadedMb MB / $totalMb MB)",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    if (downloadStatus == "PAUSED") {
-                        Button(
-                            onClick = { triggerDownload(context, info.apkUrl, destinationFile.absolutePath) },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(text = stringResource(id = R.string.resume))
+                            Button(
+                                onClick = { WorkManager.getInstance(context).cancelUniqueWork("apk_download") },
+                                modifier = Modifier.weight(1f).height(48.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text(text = stringResource(id = R.string.pause), fontWeight = FontWeight.Bold)
+                            }
                         }
-                    } else {
-                        Button(
-                            onClick = { WorkManager.getInstance(context).cancelUniqueWork("apk_download") },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+
+                        OutlinedButton(
+                            onClick = {
+                                WorkManager.getInstance(context).cancelUniqueWork("apk_download")
+                                if (destinationFile.exists()) destinationFile.delete()
+                            },
+                            modifier = Modifier.weight(1f).height(48.dp),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text(text = stringResource(id = R.string.pause))
+                            Text(text = stringResource(id = R.string.cancel), fontWeight = FontWeight.Bold)
                         }
                     }
+                } else if (activeWorkInfo?.state == WorkInfo.State.SUCCEEDED) {
+                    Text(
+                        text = stringResource(id = R.string.download_completed),
+                        fontSize = 15.sp,
+                        color = AppColors.EmeraldGreen,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Button(
+                        onClick = {
+                            if (ApkInstaller.canInstallApk(context)) {
+                                ApkInstaller.installApk(context, destinationFile)
+                            } else {
+                                showPermissionDialog = true
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.EmeraldGreen),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth().height(50.dp)
+                    ) {
+                        Text(text = stringResource(id = R.string.install_update), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     OutlinedButton(
                         onClick = {
+                            if (destinationFile.exists()) destinationFile.delete()
                             WorkManager.getInstance(context).cancelUniqueWork("apk_download")
-                            destinationFile.delete()
+                            triggerDownload(context, info.apkUrl, destinationFile.absolutePath)
                         },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.fillMaxWidth().height(46.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
                     ) {
-                        Text(text = stringResource(id = R.string.cancel))
+                        Text(text = if (currentLang == "hi") "पुनः डाउनलोड करें (Re-download)" else "Re-download & Try Again", fontWeight = FontWeight.Bold)
                     }
-                }
-            } else if (activeWorkInfo?.state == WorkInfo.State.SUCCEEDED) {
-                Text(
-                    text = stringResource(id = R.string.download_completed),
-                    fontSize = 16.sp,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
+                } else if (activeWorkInfo?.state == WorkInfo.State.FAILED) {
+                    val errorMsg = progressData?.getString("error_message") ?: "Unknown network failure"
+                    Text(
+                        text = stringResource(id = R.string.download_failed),
+                        fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = stringResource(id = R.string.error_download, errorMsg),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                Button(
-                    onClick = {
-                        if (ApkInstaller.canInstallApk(context)) {
-                            ApkInstaller.installApk(context, destinationFile)
-                        } else {
-                            showPermissionDialog = true
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(text = stringResource(id = R.string.install_update))
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedButton(
-                    onClick = {
-                        if (destinationFile.exists()) {
-                            destinationFile.delete()
-                        }
-                        WorkManager.getInstance(context).cancelUniqueWork("apk_download")
-                        triggerDownload(context, info.apkUrl, destinationFile.absolutePath)
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text(text = if (currentLang == "hi") "पुनः डाउनलोड करें (Re-download)" else "Re-download & Try Again")
-                }
-            } else if (activeWorkInfo?.state == WorkInfo.State.FAILED) {
-                val errorMsg = progressData?.getString("error_message") ?: "Unknown network failure"
-                Text(
-                    text = stringResource(id = R.string.download_failed),
-                    fontSize = 16.sp,
-                    color = MaterialTheme.colorScheme.error,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = stringResource(id = R.string.error_download, errorMsg),
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                Button(
-                    onClick = { triggerDownload(context, info.apkUrl, destinationFile.absolutePath) },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(text = stringResource(id = R.string.retry))
-                }
-            } else {
-                // Initial State
-                Button(
-                    onClick = { triggerDownload(context, info.apkUrl, destinationFile.absolutePath) },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(text = stringResource(id = R.string.update_now))
+                    Button(
+                        onClick = { triggerDownload(context, info.apkUrl, destinationFile.absolutePath) },
+                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.EmeraldGreen),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth().height(50.dp)
+                    ) {
+                        Text(text = stringResource(id = R.string.retry), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    }
+                } else {
+                    // Initial State: Update Now at bottom
+                    Button(
+                        onClick = { triggerDownload(context, info.apkUrl, destinationFile.absolutePath) },
+                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.EmeraldGreen),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth().height(50.dp)
+                    ) {
+                        Text(text = stringResource(id = R.string.update_now), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }

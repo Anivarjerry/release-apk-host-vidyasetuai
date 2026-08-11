@@ -54,6 +54,15 @@ fun LeaveSubScreen(
     var expandedLeaveIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var isLoadingDbData by remember { mutableStateOf(true) }
 
+    // Approval / Rejection Action Dialog State
+    var selectedLeaveForAction by remember { mutableStateOf<LocalOrganizationLeaveEntity?>(null) }
+    var actionTypeTarget by remember { mutableStateOf<String?>(null) } // "Approved" or "Rejected"
+    var actionRemarksInput by remember { mutableStateOf("") }
+
+    // Case-insensitive Admin Check
+    val adminRoles = remember { listOf("Admin", "System Administrator", "School Administrator", "Org Admin", "Principal", "Director", "Owner") }
+    val isAdmin = remember(role) { adminRoles.any { it.equals(role, ignoreCase = true) } }
+
     // Query database to resolve leave details (with names, comments, etc.)
     LaunchedEffect(state.leaves, activeWorkspace, role) {
         isLoadingDbData = true
@@ -67,29 +76,30 @@ fun LeaveSubScreen(
         val studentClassMap = students.associate { it.id to "${it.className ?: ""} - ${it.sectionName ?: ""}" }
         val staffNameMap = staffList.associate { it.id to it.name }
 
-        // 2. Query leaves from local Room DB
-        val rawLeaves = dao.getAllLeaves()
+        // 2. Query leaves from local Room DB and filter out past leaves older than today
+        val todayStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+        val rawLeaves = dao.getAllLeaves().filter { it.endDate >= todayStr || it.startDate >= todayStr }
 
         // 3. Filter based on roles (Admin roles see all leaves)
-        val adminRoles = listOf("Admin", "System Administrator", "School Administrator", "Org Admin", "Principal", "Director", "Owner")
-        val isAdmin = role in adminRoles
-
         val filteredRaw = when {
             isAdmin -> {
-                rawLeaves // Admin sees all leaves
+                rawLeaves // Admin / Principal sees ALL staff & student leaves
             }
-            role == "Guardian" -> {
+            role.equals("Guardian", ignoreCase = true) -> {
                 val childIds = state.guardianStudents.map { it.id }
-                rawLeaves.filter { it.studentId != null && it.studentId in childIds }
+                rawLeaves.filter { (it.studentId != null && it.studentId in childIds) || (it.actionBy != null && it.actionBy == userId) }
             }
-            role == "Student" -> {
+            role.equals("Student", ignoreCase = true) -> {
                 val studentId = activeWorkspace?.studentId ?: ""
-                rawLeaves.filter { it.studentId != null && it.studentId == studentId }
+                rawLeaves.filter { (it.studentId != null && it.studentId == studentId) || (it.actionBy != null && it.actionBy == userId) }
             }
             else -> {
-                // Regular staff/teacher: see their own leaves
-                val staffId = activeWorkspace?.id ?: ""
-                rawLeaves.filter { it.staffId != null && it.staffId == staffId }
+                // Regular staff / teacher: see their own leaves
+                val staffId = activeWorkspace?.staffId ?: activeWorkspace?.id ?: ""
+                rawLeaves.filter { 
+                    (it.staffId != null && (it.staffId == staffId || it.staffId == activeWorkspace?.id)) || 
+                    (it.actionBy != null && it.actionBy == userId) 
+                }
             }
         }
 
@@ -138,115 +148,105 @@ fun LeaveSubScreen(
     val backgroundColor = MaterialTheme.colorScheme.background
     val textColor = MaterialTheme.colorScheme.onBackground
     val cardBg = if (isDark) Color(0xFF1E1E20) else Color.White
-    val cardBorderColor = if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E5EA)
-    val subtitleColor = if (isDark) Color(0xFFA3A3A3) else Color(0xFF737373)
-    val dividerColor = MaterialTheme.colorScheme.outlineVariant
+    val subtitleColor = if (isDark) Color(0xFFA0A0A0) else Color(0xFF666666)
+    val cardBorderColor = if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E7EB)
 
-    Scaffold(
-        topBar = {
-            Column(modifier = Modifier.fillMaxWidth().background(backgroundColor)) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .height(56.dp)
-                        .padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = onBack,
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(
-                            imageVector = Lucide.ArrowLeft,
-                            contentDescription = "Back",
-                            tint = textColor,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = if (isHindi) "छुट्टियाँ" else "Leaves",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = textColor
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(0.5.dp)
-                        .background(dividerColor)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(backgroundColor)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+    ) {
+        // Top Bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    imageVector = Lucide.ArrowLeft,
+                    contentDescription = "Back",
+                    tint = textColor
                 )
             }
-        },
-        containerColor = backgroundColor
-    ) { innerPadding ->
-        Column(
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = if (isHindi) "छुट्टियाँ (Leaves)" else "Leaves",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = textColor
+            )
+        }
+
+        // Search Bar
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
             modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .background(backgroundColor)
-        ) {
-            // ── 1. Search Box Bar ──
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = {
-                    Text(
-                        text = if (isHindi) "छुट्टी प्रकार, नाम या कारण खोजें..." else "Search leave type, name or reason...",
-                        fontSize = 13.sp,
-                        color = subtitleColor
-                    )
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Lucide.Search,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = subtitleColor
-                    )
-                },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(
-                                imageVector = Lucide.X,
-                                contentDescription = "Clear",
-                                modifier = Modifier.size(18.dp),
-                                tint = subtitleColor
-                            )
-                        }
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            placeholder = {
+                Text(
+                    text = if (isHindi) "छुट्टी का प्रकार, नाम या कारण खोजें..." else "Search leave type, name or reason...",
+                    fontSize = 14.sp,
+                    color = subtitleColor
+                )
+            },
+            leadingIcon = {
+                Icon(
+                    imageVector = Lucide.Search,
+                    contentDescription = "Search",
+                    tint = subtitleColor,
+                    modifier = Modifier.size(20.dp)
+                )
+            },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { searchQuery = "" }) {
+                        Icon(
+                            imageVector = Lucide.X,
+                            contentDescription = "Clear",
+                            tint = subtitleColor,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
-                },
+                }
+            },
+            shape = RoundedCornerShape(12.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = AppColors.EmeraldGreen,
+                unfocusedBorderColor = cardBorderColor,
+                focusedContainerColor = cardBg,
+                unfocusedContainerColor = cardBg
+            ),
+            singleLine = true
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Content Area
+        if (isLoadingDbData) {
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = AppColors.EmeraldGreen,
-                    unfocusedBorderColor = cardBorderColor,
-                    focusedContainerColor = cardBg,
-                    unfocusedContainerColor = cardBg
-                ),
-                singleLine = true
-            )
-
-            // ── 2. Loading State / Content Area ──
-            if (isLoadingDbData) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(color = AppColors.EmeraldGreen)
-                }
-            } else if (filteredLeaves.isEmpty()) {
+                    .weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = AppColors.EmeraldGreen)
+            }
+        } else if (filteredLeaves.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp)
+                    modifier = Modifier.padding(24.dp)
                 ) {
                     Icon(
                         imageVector = Lucide.CalendarOff,
@@ -256,254 +256,299 @@ fun LeaveSubScreen(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = if (isHindi) "कोई छुट्टी का रिकॉर्ड नहीं मिला" else "No Leave Records Found",
+                        text = if (isHindi) "कोई लीव रिकॉर्ड नहीं मिला" else "No Leave Records Found",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = textColor
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = if (isHindi)
-                            "आपके फ़िल्टर के अनुसार कोई छुट्टी आवेदन या रिकॉर्ड दर्ज नहीं है।"
-                        else
-                            "No leave requests or records match your search query.",
+                        text = if (isHindi) "आपकी खोज या भूमिका के अनुसार कोई लीव उपलब्ध नहीं है।" else "No leave requests or records match your search query.",
                         fontSize = 13.sp,
                         color = subtitleColor,
                         textAlign = TextAlign.Center
                     )
                 }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(filteredLeaves) { resolved ->
-                        val leave = resolved.entity
-                        val isExpanded = expandedLeaveIds.contains(leave.id)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(filteredLeaves, key = { it.entity.id }) { resolved ->
+                    val leave = resolved.entity
+                    val isExpanded = expandedLeaveIds.contains(leave.id)
 
-                        // Determine status colors
-                        val (statusText, statusBg, statusTextCol) = when (leave.status) {
-                            "Approved" -> Triple(
-                                if (isHindi) "स्वीकृत" else "Approved",
-                                if (isDark) Color(0xFF1E3A2F) else Color(0xFFE8F5E9),
-                                if (isDark) Color(0xFF81C784) else Color(0xFF2E7D32)
-                            )
-                            "Rejected" -> Triple(
-                                if (isHindi) "अस्वीकृत" else "Rejected",
-                                if (isDark) Color(0xFF3E1F1F) else Color(0xFFFFEBEE),
-                                if (isDark) Color(0xFFE57373) else Color(0xFFC62828)
-                            )
-                            else -> Triple(
-                                if (isHindi) "लंबित" else "Pending",
-                                if (isDark) Color(0xFF3E2D1F) else Color(0xFFFFF3E0),
-                                if (isDark) Color(0xFFFFB74D) else Color(0xFFE65100)
-                            )
-                        }
+                    val statusBg = when (leave.status) {
+                        "Approved" -> Color(0xFFE8F5E9)
+                        "Rejected" -> Color(0xFFFFEBEE)
+                        else -> Color(0xFFFFF3E0)
+                    }
+                    val statusTextCol = when (leave.status) {
+                        "Approved" -> Color(0xFF2E7D32)
+                        "Rejected" -> Color(0xFFC62828)
+                        else -> Color(0xFFE65100)
+                    }
+                    val statusText = when (leave.status) {
+                        "Approved" -> if (isHindi) "स्वीकृत (Approved)" else "Approved"
+                        "Rejected" -> if (isHindi) "अस्वीकृत (Rejected)" else "Rejected"
+                        else -> if (isHindi) "पेंडिंग (Pending)" else "Pending"
+                    }
 
-                        Surface(
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, cardBorderColor, RoundedCornerShape(12.dp)),
+                        shape = RoundedCornerShape(12.dp),
+                        color = cardBg
+                    ) {
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .border(1.dp, cardBorderColor, RoundedCornerShape(12.dp)),
-                            shape = RoundedCornerShape(12.dp),
-                            color = cardBg
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        expandedLeaveIds = if (isExpanded) {
-                                            expandedLeaveIds - leave.id
-                                        } else {
-                                            expandedLeaveIds + leave.id
-                                        }
-                                    }
-                                    .padding(16.dp)
-                            ) {
-                                // ── Short Header Row ──
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = leave.leaveType,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 16.sp,
-                                            color = textColor
-                                        )
-                                        
-                                        // Show applicant details
-                                        val displayApplicantLabel = when {
-                                            role == "Guardian" -> if (isHindi) "बच्चा: " else "Child: "
-                                            leave.applicantType.equals("student", ignoreCase = true) -> if (isHindi) "छात्र: " else "Student: "
-                                            else -> if (isHindi) "स्टाफ: " else "Staff: "
-                                        }
-                                        Text(
-                                            text = "$displayApplicantLabel${resolved.applicantName}",
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = AppColors.EmeraldGreen,
-                                            modifier = Modifier.padding(top = 2.dp)
-                                        )
-                                        if (!resolved.classSection.isNullOrBlank()) {
-                                            Text(
-                                                text = resolved.classSection,
-                                                fontSize = 11.sp,
-                                                color = subtitleColor
-                                            )
-                                        }
-                                    }
-                                    
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Surface(
-                                            shape = RoundedCornerShape(100.dp),
-                                            color = statusBg
-                                        ) {
-                                            Text(
-                                                text = statusText,
-                                                color = statusTextCol,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Icon(
-                                            imageVector = if (isExpanded) Lucide.ChevronUp else Lucide.ChevronDown,
-                                            contentDescription = "Expand details",
-                                            tint = subtitleColor,
-                                            modifier = Modifier.size(18.dp)
-                                        )
+                                .clickable {
+                                    expandedLeaveIds = if (isExpanded) {
+                                        expandedLeaveIds - leave.id
+                                    } else {
+                                        expandedLeaveIds + leave.id
                                     }
                                 }
-
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Divider(color = cardBorderColor.copy(alpha = 0.5f))
-                                Spacer(modifier = Modifier.height(12.dp))
-
-                                // Date duration
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Lucide.Calendar,
-                                        contentDescription = null,
-                                        tint = subtitleColor,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
+                                .padding(16.dp)
+                        ) {
+                            // ── Short Header Row ──
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "${leave.startDate} ${if (isHindi) "से" else "to"} ${leave.endDate}",
-                                        fontSize = 13.sp,
+                                        text = leave.leaveType,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp,
                                         color = textColor
                                     )
-                                    if (leave.isHalfDay) {
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Surface(
-                                            shape = RoundedCornerShape(4.dp),
-                                            color = cardBorderColor,
+                                    
+                                    // Show applicant details
+                                    val displayApplicantLabel = when {
+                                        role.equals("Guardian", ignoreCase = true) -> if (isHindi) "बच्चा: " else "Child: "
+                                        leave.applicantType.equals("student", ignoreCase = true) -> if (isHindi) "छात्र: " else "Student: "
+                                        else -> if (isHindi) "स्टाफ: " else "Staff: "
+                                    }
+                                    Text(
+                                        text = "$displayApplicantLabel${resolved.applicantName}",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = AppColors.EmeraldGreen,
+                                        modifier = Modifier.padding(top = 2.dp)
+                                    )
+                                    if (!resolved.classSection.isNullOrBlank()) {
+                                        Text(
+                                            text = resolved.classSection,
+                                            fontSize = 11.sp,
+                                            color = subtitleColor
+                                        )
+                                    }
+                                }
+                                
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Surface(
+                                        shape = RoundedCornerShape(100.dp),
+                                        color = statusBg
+                                    ) {
+                                        Text(
+                                            text = statusText,
+                                            color = statusTextCol,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Icon(
+                                        imageVector = if (isExpanded) Lucide.ChevronUp else Lucide.ChevronDown,
+                                        contentDescription = "Expand details",
+                                        tint = subtitleColor,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Divider(color = cardBorderColor.copy(alpha = 0.5f))
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Date duration
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Lucide.Calendar,
+                                    contentDescription = null,
+                                    tint = subtitleColor,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "${leave.startDate} ${if (isHindi) "से" else "to"} ${leave.endDate}",
+                                    fontSize = 13.sp,
+                                    color = textColor
+                                )
+                                if (leave.isHalfDay) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = cardBorderColor,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = if (isHindi) "हाफ डे" else "Half Day",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.SemiBold,
                                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // ── Expanded Accordion Details ──
+                            if (isExpanded) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                
+                                // Applied Reason
+                                if (!leave.reason.isNullOrBlank()) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                        verticalAlignment = Alignment.Top
+                                    ) {
+                                        Icon(
+                                            imageVector = Lucide.Info,
+                                            contentDescription = null,
+                                            tint = subtitleColor,
+                                            modifier = Modifier.size(16.dp).padding(top = 2.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "${if (isHindi) "कारण: " else "Reason: "} ${leave.reason}",
+                                            fontSize = 13.sp,
+                                            color = textColor
+                                        )
+                                    }
+                                }
+
+                                // Half day period description
+                                if (leave.isHalfDay && !leave.halfDayPeriod.isNullOrBlank()) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Lucide.Clock,
+                                            contentDescription = null,
+                                            tint = subtitleColor,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "${if (isHindi) "अवधि: " else "Period: "} ${leave.halfDayPeriod}",
+                                            fontSize = 13.sp,
+                                            color = textColor
+                                        )
+                                    }
+                                }
+
+                                // Action Details (Approved/Rejected Info)
+                                if (leave.status != "Pending") {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Divider(color = cardBorderColor.copy(alpha = 0.3f))
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    // Action Date
+                                    if (!leave.actionAt.isNullOrBlank()) {
+                                        val cleanDate = leave.actionAt.substringBefore("T")
+                                        Text(
+                                            text = "${if (isHindi) "कार्रवाई तिथि: " else "Action Date: "} $cleanDate",
+                                            fontSize = 12.sp,
+                                            color = subtitleColor,
+                                            modifier = Modifier.padding(top = 2.dp)
+                                        )
+                                    }
+                                    // Rejection Reason / Remarks
+                                    if (!leave.actionRemarks.isNullOrBlank()) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = statusBg.copy(alpha = 0.6f),
+                                            modifier = Modifier.fillMaxWidth()
                                         ) {
                                             Text(
-                                                text = if (isHindi) "हाफ डे" else "Half Day",
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                                text = "${if (isHindi) "टिप्पणी: " else "Remarks: "} ${leave.actionRemarks}",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = statusTextCol,
+                                                modifier = Modifier.padding(8.dp)
                                             )
                                         }
                                     }
                                 }
 
-                                // ── Expanded Accordion Details ──
-                                if (isExpanded) {
-                                    Spacer(modifier = Modifier.height(10.dp))
-                                    
-                                    // Applied Reason
-                                    if (!leave.reason.isNullOrBlank()) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                            verticalAlignment = Alignment.Top
-                                        ) {
-                                            Icon(
-                                                imageVector = Lucide.Info,
-                                                contentDescription = null,
-                                                tint = subtitleColor,
-                                                modifier = Modifier.size(16.dp).padding(top = 2.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text(
-                                                text = "${if (isHindi) "कारण: " else "Reason: "} ${leave.reason}",
-                                                fontSize = 13.sp,
-                                                color = textColor
-                                            )
-                                        }
-                                    }
+                                // ── Admin Action Buttons (Approve / Reject) for Pending Leaves ──
+                                if (isAdmin && leave.status == "Pending") {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Divider(color = cardBorderColor.copy(alpha = 0.4f))
+                                    Spacer(modifier = Modifier.height(12.dp))
 
-                                    // Half day period description
-                                    if (leave.isHalfDay && !leave.halfDayPeriod.isNullOrBlank()) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                            verticalAlignment = Alignment.CenterVertically
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Button(
+                                            onClick = {
+                                                selectedLeaveForAction = leave
+                                                actionTypeTarget = "Approved"
+                                                actionRemarksInput = ""
+                                            },
+                                            modifier = Modifier.weight(1f),
+                                            colors = ButtonDefaults.buttonColors(containerColor = AppColors.EmeraldGreen),
+                                            shape = RoundedCornerShape(8.dp)
                                         ) {
                                             Icon(
-                                                imageVector = Lucide.Clock,
-                                                contentDescription = null,
-                                                tint = subtitleColor,
+                                                imageVector = Lucide.Check,
+                                                contentDescription = "Approve",
                                                 modifier = Modifier.size(16.dp)
                                             )
-                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
                                             Text(
-                                                text = "${if (isHindi) "अवधि: " else "Period: "} ${leave.halfDayPeriod}",
+                                                text = if (isHindi) "स्वीकृत करें" else "Approve",
                                                 fontSize = 13.sp,
-                                                color = textColor
+                                                fontWeight = FontWeight.Bold
                                             )
                                         }
-                                    }
 
-                                    // Action Details (Approved/Rejected Info)
-                                    if (leave.status != "Pending") {
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Divider(color = cardBorderColor.copy(alpha = 0.3f))
-                                        Spacer(modifier = Modifier.height(8.dp))
-
-                                        // Action Author
-                                        if (!resolved.actionByName.isNullOrBlank()) {
-                                            Text(
-                                                text = "${if (isHindi) "कार्रवाई कर्ता: " else "Action By: "} ${resolved.actionByName}",
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Medium,
-                                                color = subtitleColor
+                                        Button(
+                                            onClick = {
+                                                selectedLeaveForAction = leave
+                                                actionTypeTarget = "Rejected"
+                                                actionRemarksInput = ""
+                                            },
+                                            modifier = Modifier.weight(1f),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Lucide.X,
+                                                contentDescription = "Reject",
+                                                modifier = Modifier.size(16.dp)
                                             )
-                                        }
-                                        // Action Date
-                                        if (!leave.actionAt.isNullOrBlank()) {
-                                            val cleanDate = leave.actionAt.substringBefore("T")
+                                            Spacer(modifier = Modifier.width(6.dp))
                                             Text(
-                                                text = "${if (isHindi) "कार्रवाई तिथि: " else "Action Date: "} $cleanDate",
-                                                fontSize = 12.sp,
-                                                color = subtitleColor,
-                                                modifier = Modifier.padding(top = 2.dp)
+                                                text = if (isHindi) "अस्वीकृत करें" else "Reject",
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold
                                             )
-                                        }
-                                        // Rejection Reason / Remarks
-                                        if (!leave.actionRemarks.isNullOrBlank()) {
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Surface(
-                                                shape = RoundedCornerShape(6.dp),
-                                                color = statusBg.copy(alpha = 0.6f),
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Text(
-                                                    text = "${if (isHindi) "टिप्पणी: " else "Remarks: "} ${leave.actionRemarks}",
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Medium,
-                                                    color = statusTextCol,
-                                                    modifier = Modifier.padding(8.dp)
-                                                )
-                                            }
                                         }
                                     }
                                 }
@@ -514,9 +559,94 @@ fun LeaveSubScreen(
             }
         }
     }
+
+    // ── Approve / Reject Confirmation Dialog ──
+    if (selectedLeaveForAction != null && actionTypeTarget != null) {
+        val target = actionTypeTarget!!
+        val isApprove = target == "Approved"
+        val dialogTitle = if (isApprove) {
+            if (isHindi) "छुट्टी स्वीकृत करें" else "Approve Leave Request"
+        } else {
+            if (isHindi) "छुट्टी अस्वीकृत करें" else "Reject Leave Request"
+        }
+
+        AlertDialog(
+            onDismissRequest = {
+                selectedLeaveForAction = null
+                actionTypeTarget = null
+            },
+            title = {
+                Text(
+                    text = dialogTitle,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = if (isHindi) "क्या आप इस लीव आवेदन की स्थिति बदलना चाहते हैं? (ऐच्छिक टिप्पणी लिखें):"
+                               else "Are you sure you want to update the leave status? (Optional Remarks):",
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = actionRemarksInput,
+                        onValueChange = { actionRemarksInput = it },
+                        placeholder = {
+                            Text(
+                                text = if (isHindi) "टिप्पणी यहाँ लिखें (जैसे: स्वीकृत/अस्वीकृत)..." else "Write remarks here...",
+                                fontSize = 13.sp
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val targetLeave = selectedLeaveForAction
+                        if (targetLeave != null) {
+                            viewModel.onEvent(
+                                InstitutionEvent.UpdateLeaveStatus(
+                                    leaveId = targetLeave.id,
+                                    status = target,
+                                    remarks = actionRemarksInput.trim(),
+                                    actionBy = userId
+                                )
+                            )
+                        }
+                        selectedLeaveForAction = null
+                        actionTypeTarget = null
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isApprove) AppColors.EmeraldGreen else Color(0xFFD32F2F)
+                    )
+                ) {
+                    Text(
+                        text = if (isHindi) "पुष्टि करें" else "Confirm",
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        selectedLeaveForAction = null
+                        actionTypeTarget = null
+                    }
+                ) {
+                    Text(text = if (isHindi) "रद्द करें" else "Cancel")
+                }
+            }
+        )
+    }
 }
 
-// ── UI UI Model ──
+// ── UI Resolved Model ──
 data class ResolvedLeave(
     val entity: LocalOrganizationLeaveEntity,
     val applicantName: String,

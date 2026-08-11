@@ -20,5 +20,6 @@ data class UserProfileDto(
     val gender: String? = null,
     val date_of_birth: String? = null,
     val total_inspiring_count: Int = 0,
-    val total_inspired_count: Int = 0
+    val total_inspired_count: Int = 0,
+    val public_key: String? = null
 )

@@ -7,6 +7,7 @@ CREATE OR REPLACE FUNCTION public.fetch_entire_workspace_payload_for_mobile(
     p_child_organization_id UUID, -- स्टाफ के लिए कोटलिन से NULL (JsonNull) आएगा
     p_user_role TEXT,             -- 'Student', 'Guardian', 'DRIVER', 'Teacher', आदि
     p_user_id UUID,               -- Auth User ID (public.users.id)
+    p_staff_id UUID DEFAULT NULL, -- एक्टिव स्टाफ प्रोफाइल की ID (कोटलिन से एक्टिव वर्क्सपेस की ID)
     p_last_synced_at TIMESTAMPTZ DEFAULT NULL
 )
 RETURNS JSONB
@@ -38,10 +39,27 @@ BEGIN
         WHERE user_id = p_user_id AND organization_id = p_child_organization_id AND is_approved = true LIMIT 1;
         
     -- ग) DRIVER रोल के लिए:
-    ELSIF p_user_role = 'DRIVER' THEN
-        SELECT staff_id, parent_organization_id INTO v_staff_id, v_resolved_parent_org_id 
-        FROM public.organization_parent_staff_user_links 
-        WHERE user_id = p_user_id LIMIT 1;
+    ELSIF LOWER(p_user_role) = 'driver' THEN
+        IF p_staff_id IS NOT NULL THEN
+            SELECT staff_id, parent_organization_id INTO v_staff_id, v_resolved_parent_org_id 
+            FROM public.organization_parent_staff_user_links 
+            WHERE user_id = p_user_id AND staff_id = p_staff_id LIMIT 1;
+        END IF;
+
+        IF v_staff_id IS NULL THEN
+            SELECT staff_id, parent_organization_id INTO v_staff_id, v_resolved_parent_org_id 
+            FROM public.organization_parent_staff_user_links 
+            WHERE user_id = p_user_id 
+              AND (p_parent_organization_id IS NULL OR parent_organization_id = p_parent_organization_id)
+            ORDER BY created_at DESC LIMIT 1;
+        END IF;
+
+        IF v_staff_id IS NULL THEN
+            SELECT staff_id, parent_organization_id INTO v_staff_id, v_resolved_parent_org_id 
+            FROM public.organization_parent_staff_user_links 
+            WHERE user_id = p_user_id 
+            ORDER BY created_at DESC LIMIT 1;
+        END IF;
         
         SELECT bus_id INTO v_bus_id 
         FROM public.organization_parent_bus_staff_assignments 
@@ -49,10 +67,57 @@ BEGIN
         
     -- घ) अन्य सभी STAFF रोल्स के लिए:
     ELSE
-        SELECT staff_id, parent_organization_id INTO v_staff_id, v_resolved_parent_org_id 
-        FROM public.organization_parent_staff_user_links 
-        WHERE user_id = p_user_id LIMIT 1;
+        -- 1. अगर caller ने explicit p_staff_id भेजा है, तो पहले उसी staff_id को चेक करें:
+        IF p_staff_id IS NOT NULL THEN
+            SELECT staff_id, parent_organization_id INTO v_staff_id, v_resolved_parent_org_id 
+            FROM public.organization_parent_staff_user_links 
+            WHERE user_id = p_user_id AND (staff_id = p_staff_id OR id = p_staff_id) LIMIT 1;
+
+            IF v_staff_id IS NULL THEN
+                SELECT id, parent_organization_id INTO v_staff_id, v_resolved_parent_org_id 
+                FROM public.organization_parent_staff 
+                WHERE id = p_staff_id AND is_deleted = false LIMIT 1;
+            END IF;
+        END IF;
+
+        -- 2. अगर p_staff_id से नहीं मिला, तो user_links से चेक करें:
+        IF v_staff_id IS NULL THEN
+            SELECT staff_id, parent_organization_id INTO v_staff_id, v_resolved_parent_org_id 
+            FROM public.organization_parent_staff_user_links 
+            WHERE user_id = p_user_id 
+              AND (p_parent_organization_id IS NULL OR parent_organization_id = p_parent_organization_id)
+            ORDER BY created_at DESC LIMIT 1;
+        END IF;
+
+        -- 3. फॉलबैक 1: अगर specific parent org id से नहीं मिला
+        IF v_staff_id IS NULL THEN
+            SELECT staff_id, parent_organization_id INTO v_staff_id, v_resolved_parent_org_id 
+            FROM public.organization_parent_staff_user_links 
+            WHERE user_id = p_user_id 
+            ORDER BY created_at DESC LIMIT 1;
+        END IF;
+
+        -- 4. फॉलबैक 2: अगर user_links में रिकॉर्ड नहीं मिला, तो staff टेबल में मोबाइल नंबर / ईमेल से खोजें
+        IF v_staff_id IS NULL THEN
+            SELECT id, parent_organization_id INTO v_staff_id, v_resolved_parent_org_id 
+            FROM public.organization_parent_staff 
+            WHERE (parent_organization_id = p_parent_organization_id OR p_parent_organization_id IS NULL)
+              AND is_deleted = false
+              AND (
+                  mobile_number = (SELECT mobile_number FROM public.users WHERE id = p_user_id LIMIT 1)
+                  OR 
+                  email = (SELECT email FROM public.users WHERE id = p_user_id LIMIT 1)
+              )
+            ORDER BY created_at DESC LIMIT 1;
+        END IF;
     END IF;
+
+    -- ==========================================
+    -- 1.1 पेरेंट ऑर्ग आईडी फ़ॉल बैक गारंटी
+    -- ==========================================
+    -- यदि लिंक टेबल से v_resolved_parent_org_id NULL हो जाए, 
+    -- तो इनपुट पैरामीटर p_parent_organization_id से इसे री-असाइन करें ताकि child orgs और वर्कस्पेस सिंक फ़ेल न हो
+    v_resolved_parent_org_id := COALESCE(v_resolved_parent_org_id, p_parent_organization_id);
 
     -- ==========================================
     -- 2. डेटा को एग्रीगेट और कम्बाइन करें (JSONB Object)
@@ -181,7 +246,11 @@ BEGIN
             WHERE (
                 (p_user_role IN ('Student', 'Guardian') AND org.id = p_child_organization_id)
                 OR
-                (p_user_role NOT IN ('Student', 'Guardian') AND org.parent_organization_id = v_resolved_parent_org_id)
+                (p_user_role NOT IN ('Student', 'Guardian') AND (
+                    org.parent_organization_id = v_resolved_parent_org_id 
+                    OR org.parent_organization_id = p_parent_organization_id
+                    OR org.id = p_child_organization_id
+                ))
             )
             AND org.is_active = true AND org.is_deleted = false
         ),
@@ -307,6 +376,8 @@ BEGIN
                     SELECT orgs.id FROM public.organizations orgs WHERE orgs.parent_organization_id = v_resolved_parent_org_id
                 ))
             )
+            AND s.is_deleted = false
+            AND s.is_active = true
             AND (
                 (p_user_role = 'Student' AND s.id = v_student_id) 
                 OR
@@ -352,6 +423,8 @@ BEGIN
                     SELECT orgs.id FROM public.organizations orgs WHERE orgs.parent_organization_id = v_resolved_parent_org_id
                 ))
             )
+            AND f.is_deleted = false
+            AND f.is_active = true
             AND (
                 (p_user_role = 'Student' AND f.student_id = v_student_id)
                 OR
@@ -374,6 +447,7 @@ BEGIN
                     'organization_id', p.organization_id,
                     'active_session_id', p.active_session_id,
                     'student_id', p.student_id,
+                    'fee_head_type_id', p.fee_head_type_id,
                     'receipt_number', p.receipt_number,
                     'payment_mode', p.payment_mode,
                     'payment_date', p.payment_date,
@@ -403,6 +477,7 @@ BEGIN
                     SELECT orgs.id FROM public.organizations orgs WHERE orgs.parent_organization_id = v_resolved_parent_org_id
                 ))
             )
+            AND p.is_deleted = false
             AND (
                 (p_user_role = 'Student' AND p.student_id = v_student_id)
                 OR
@@ -454,6 +529,7 @@ BEGIN
                     SELECT orgs.id FROM public.organizations orgs WHERE orgs.parent_organization_id = v_resolved_parent_org_id
                 ))
             )
+            AND a.is_deleted = false
             AND (
                 (p_user_role = 'Student' AND a.student_id = v_student_id)
                 OR
@@ -609,6 +685,7 @@ BEGIN
                     'license_number', st.license_number,
                     'license_expiry_date', st.license_expiry_date,
                     'role_id', st.role_id,
+                    'role_name', (SELECT r.name FROM public.global_staff_roles r WHERE r.id = st.role_id LIMIT 1),
                     'subject_id', st.subject_id,
                     'address_area_id', st.address_area_id
                 )
@@ -749,6 +826,7 @@ BEGIN
             LEFT JOIN public.organization_sections os ON e.section_id = os.id
             LEFT JOIN public.organization_parent_staff st ON l.scanned_by_staff_id = st.id
             WHERE l.parent_organization_id = v_resolved_parent_org_id
+            AND l.is_deleted = false
             AND (
                 p_user_role NOT IN ('Student', 'Guardian', 'DRIVER')
                 OR (p_user_role = 'DRIVER' AND l.trip_id IN (
@@ -936,6 +1014,160 @@ BEGIN
                     )
                 )
             )
+        ),
+        -- ----------------------------------------------------
+        -- ENTITY 16: Staff Salaries (स्टाफ बेस सैलरी विवरण)
+        -- ----------------------------------------------------
+        'staff_salaries', (
+            SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                'id', s.id,
+                'parent_organization_id', s.parent_organization_id,
+                'active_session_id', s.active_session_id,
+                'staff_id', s.staff_id,
+                'monthly_salary', s.monthly_salary,
+                'bank_name', s.bank_name,
+                'bank_account_number', s.bank_account_number,
+                'ifsc_code', s.ifsc_code,
+                'upi_id', s.upi_id,
+                'is_active', s.is_active,
+                'is_deleted', s.is_deleted
+            )), '[]'::jsonb)
+            FROM public.organization_parent_staff_salaries s
+            WHERE s.parent_organization_id = v_resolved_parent_org_id AND s.is_deleted = false
+            AND (p_user_role IN ('System Administrator', 'School Administrator', 'Org Admin', 'Principal', 'Admin', 'Director', 'Owner') OR s.staff_id = v_staff_id)
+            AND (p_last_synced_at IS NULL OR s.updated_at > p_last_synced_at)
+        ),
+        -- ----------------------------------------------------
+        -- ENTITY 17: Staff Salary Payouts (मासिक पेआउट विवरण)
+        -- ----------------------------------------------------
+        'staff_salary_payouts', (
+            SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                'id', po.id,
+                'parent_organization_id', po.parent_organization_id,
+                'active_session_id', po.active_session_id,
+                'staff_id', po.staff_id,
+                'payout_month', po.payout_month,
+                'payout_year', po.payout_year,
+                'salary_amount', po.salary_amount,
+                'bonus', po.bonus,
+                'deduction', po.deduction,
+                'is_locked', po.is_locked,
+                'locked_at', po.locked_at,
+                'locked_by', po.locked_by,
+                'is_active', po.is_active,
+                'is_deleted', po.is_deleted
+            )), '[]'::jsonb)
+            FROM public.organization_parent_staff_salary_payouts po
+            WHERE po.parent_organization_id = v_resolved_parent_org_id AND po.is_deleted = false
+            AND (p_user_role IN ('System Administrator', 'School Administrator', 'Org Admin', 'Principal', 'Admin', 'Director', 'Owner') OR po.staff_id = v_staff_id)
+            AND (p_last_synced_at IS NULL OR po.updated_at > p_last_synced_at)
+        ),
+        -- ----------------------------------------------------
+        -- ENTITY 18: Staff Salary Payments (सैलरी भुगतान ट्रांजैक्शन)
+        -- ----------------------------------------------------
+        'staff_salary_payments', (
+            SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                'id', pm.id,
+                'parent_organization_id', pm.parent_organization_id,
+                'active_session_id', pm.active_session_id,
+                'staff_id', pm.staff_id,
+                'payment_date', pm.payment_date,
+                'amount_paid', pm.amount_paid,
+                'payment_mode', pm.payment_mode,
+                'cash_paid_by_user_id', pm.cash_paid_by_user_id,
+                'cheque_number', pm.cheque_number,
+                'cheque_date', pm.cheque_date,
+                'cheque_bank_name', pm.cheque_bank_name,
+                'online_transaction_id', pm.online_transaction_id,
+                'online_payment_app', pm.online_payment_app,
+                'remarks', pm.remarks,
+                'is_active', pm.is_active,
+                'is_deleted', pm.is_deleted
+            )), '[]'::jsonb)
+            FROM public.organization_parent_staff_salary_payments pm
+            WHERE pm.parent_organization_id = v_resolved_parent_org_id AND pm.is_deleted = false
+            AND (p_user_role IN ('System Administrator', 'School Administrator', 'Org Admin', 'Principal', 'Admin', 'Director', 'Owner') OR pm.staff_id = v_staff_id)
+            AND (p_last_synced_at IS NULL OR pm.updated_at > p_last_synced_at)
+        ),
+        -- ----------------------------------------------------
+        -- ENTITY 19: Staff Bus Enrollments (स्टाफ बस एनरोलमेंट)
+        -- ----------------------------------------------------
+        'staff_bus_enrollments', (
+            SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                'id', be.id,
+                'parent_organization_id', be.parent_organization_id,
+                'organization_id', be.organization_id,
+                'active_session_id', be.active_session_id,
+                'staff_id', be.staff_id,
+                'bus_id', be.bus_id,
+                'joining_date', be.joining_date,
+                'monthly_fare', be.monthly_fare,
+                'auto_deduct_from_salary', be.auto_deduct_from_salary,
+                'is_active', be.is_active,
+                'is_deleted', be.is_deleted
+            )), '[]'::jsonb)
+            FROM public.organization_parent_staff_bus_enrollments be
+            WHERE be.parent_organization_id = v_resolved_parent_org_id AND be.is_deleted = false
+            AND (p_user_role IN ('System Administrator', 'School Administrator', 'Org Admin', 'Principal', 'Admin', 'Director', 'Owner') OR be.staff_id = v_staff_id)
+            AND (p_last_synced_at IS NULL OR be.updated_at > p_last_synced_at)
+        ),
+        -- ----------------------------------------------------
+        -- ENTITY 20: Staff Bus Fares (स्टाफ बस किराया नियम)
+        -- ----------------------------------------------------
+        'staff_bus_fares', (
+            SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                'id', bf.id,
+                'parent_organization_id', bf.parent_organization_id,
+                'active_session_id', bf.active_session_id,
+                'staff_id', bf.staff_id,
+                'bus_id', bf.bus_id,
+                'fare_amount', bf.fare_amount,
+                'is_active', bf.is_active,
+                'is_deleted', bf.is_deleted
+            )), '[]'::jsonb)
+            FROM public.organization_parent_staff_bus_fares bf
+            WHERE bf.parent_organization_id = v_resolved_parent_org_id AND bf.is_deleted = false
+            AND (p_user_role IN ('System Administrator', 'School Administrator', 'Org Admin', 'Principal', 'Admin', 'Director', 'Owner') OR bf.staff_id = v_staff_id)
+            AND (p_last_synced_at IS NULL OR bf.updated_at > p_last_synced_at)
+        ),
+        -- ----------------------------------------------------
+        -- ENTITY 21: Global Sessions (ग्लोबल शैक्षणिक सत्र)
+        -- ----------------------------------------------------
+        'global_sessions', (
+            SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                'id', gs.id,
+                'name', gs.name,
+                'is_active', gs.is_active,
+                'is_deleted', gs.is_deleted,
+                'starting_date', gs.starting_date,
+                'ending_date', gs.ending_date,
+                'update_before_ending_days', gs.update_before_ending_days
+            )), '[]'::jsonb)
+            FROM public.global_sessions gs
+            WHERE gs.is_deleted = false
+        ),
+        -- ----------------------------------------------------
+        -- ENTITY 22: Staff Audio Beacons (स्टाफ ऑडियो बीकन कोड्स)
+        -- ----------------------------------------------------
+        'staff_audio_beacons', (
+            SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                'staff_id', b.staff_id,
+                'parent_organization_id', b.parent_organization_id,
+                'audio_code', b.audio_code,
+                'secret_salt', COALESCE(b.secret_salt, ''),
+                'valid_until', b.valid_until,
+                'is_active', b.is_active,
+                'updated_at', b.updated_at
+            )), '[]'::jsonb)
+            FROM public.organization_parent_staff_audio_beacons b
+            WHERE b.parent_organization_id = v_resolved_parent_org_id 
+              AND b.is_active = true 
+              AND b.is_deleted = false
+              AND (p_user_role NOT IN ('Student', 'Guardian'))
+              AND (
+                  p_user_role IN ('System Administrator', 'School Administrator', 'Org Admin', 'Principal', 'Admin', 'Director', 'Owner') 
+                  OR b.staff_id = v_staff_id
+              )
         )
     ) INTO v_response;
 

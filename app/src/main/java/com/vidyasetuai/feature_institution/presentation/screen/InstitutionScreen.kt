@@ -1,7 +1,14 @@
 package com.vidyasetuai.feature_feed.presentation.screen
 
 import android.util.Log
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -28,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import com.vidyasetuai.feature_institution.presentation.component.SelfAttendanceBottomSheet
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -41,6 +49,7 @@ import com.vidyasetuai.feature_institution.domain.model.ConnectionState
 import com.vidyasetuai.feature_institution.domain.model.Workspace
 import com.vidyasetuai.feature_institution.domain.model.Leave
 import com.vidyasetuai.feature_institution.domain.model.FeePayment
+import com.vidyasetuai.feature_institution.presentation.screen.subscreens.AddAdditionalFeeFabSubScreen
 import com.vidyasetuai.feature_institution.presentation.screen.subscreens.ChildProfilesSubScreen
 import com.vidyasetuai.feature_institution.presentation.screen.subscreens.StudentHomeLocationDetailSubScreen
 import com.vidyasetuai.feature_institution.domain.model.InstitutionStudent
@@ -56,6 +65,7 @@ import com.vidyasetuai.feature_institution.presentation.screen.subscreens.Remark
 import com.vidyasetuai.feature_institution.presentation.screen.subscreens.ApplyLeaveFabSubScreen
 import com.vidyasetuai.feature_institution.presentation.screen.subscreens.AddRemarksFabSubScreen
 import com.vidyasetuai.feature_institution.presentation.screen.subscreens.PendingSyncsSubScreen
+import com.vidyasetuai.feature_institution.presentation.screen.subscreens.SalaryPayoutSubScreen
 import com.vidyasetuai.feature_institution.presentation.screen.subscreens.TakeAttendanceFabSubScreen
 import com.vidyasetuai.feature_institution.presentation.screen.subscreens.CollectFeeFabSubScreen
 import com.vidyasetuai.feature_institution.presentation.screen.subscreens.AddFinanceFabSubScreen
@@ -627,271 +637,127 @@ fun WorkspaceContainer(
         if (state.isLoading && activeSubScreen == null) {
             SkeletonLoader(isDark = isDark)
         } else {
-            if (activeSubScreen == null) {
-                // Workspace Top Bar Switcher Pill
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    state.activeWorkspace?.let { active ->
-                        val hasPending = state.pendingApprovals.isNotEmpty()
-                        val canSwitch = state.workspaces.size > 1 || hasPending
-
-                        Box {
-                            Surface(
-                                shape = RoundedCornerShape(100.dp),
-                                color = if (isDark) Color(0xFF1E1E20) else Color(0xFFF2F2F7),
-                                border = androidx.compose.foundation.BorderStroke(
-                                    0.5.dp,
-                                    if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E5EA)
-                                ),
-                                modifier = Modifier.clickable(enabled = canSwitch) {
-                                    showSwitcher = true
-                                }
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "${active.childOrgName ?: active.parentOrgName} • ${if (isHindi) mapRoleHi(active.role) else active.role}",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onBackground
-                                    )
-                                    if (canSwitch) {
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Icon(
-                                            imageVector = Lucide.ChevronDown,
-                                            contentDescription = "Switch Workspace",
-                                            modifier = Modifier.size(14.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Red badge if pending approvals exist
-                            if (hasPending) {
-                                val badgeInfinite = rememberInfiniteTransition(label = "badgePulse")
-                                val badgeScale by badgeInfinite.animateFloat(
-                                    initialValue = 1f,
-                                    targetValue = 1.3f,
-                                    animationSpec = infiniteRepeatable(
-                                        animation = tween(900, easing = LinearEasing),
-                                        repeatMode = RepeatMode.Reverse
-                                    ),
-                                    label = "badgeScale"
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.TopEnd)
-                                        .offset(x = 6.dp, y = (-6).dp)
-                                        .graphicsLayer(scaleX = badgeScale, scaleY = badgeScale)
-                                        .background(Color(0xFFFF3B30), CircleShape)
-                                        .padding(horizontal = 5.dp, vertical = 2.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "${state.pendingApprovals.size}",
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White,
-                                        lineHeight = 10.sp
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // Header control buttons row
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        // Force Sync Active Workspace Button
-                        IconButton(
-                            onClick = {
-                                if (!isInternetAvailable(context)) {
-                                    Toast.makeText(
-                                        context,
-                                        if (isHindi) "कृपया इंटरनेट चालू करें" else "Please connect to the internet",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                } else {
-                                    isRefreshingWorkspace = true
-                                    viewModel.onEvent(InstitutionEvent.ForceRefreshActiveWorkspace)
-                                }
-                            },
-                            enabled = !isRefreshingWorkspace && !state.isLoading,
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = Lucide.RefreshCw,
-                                contentDescription = "Force Sync Workspace",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier
-                                    .size(20.dp)
-                                    .rotate(refreshRotation.value)
-                            )
-                        }
-
-                        // Sync Center Cloud Icon (on the right)
-                        IconButton(
-                            onClick = {
-                                viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("pending_syncs"))
-                            },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.TopEnd) {
-                                Icon(
-                                    imageVector = Lucide.Cloud,
-                                    contentDescription = "Sync Center",
-                                    tint = if (state.totalUnsyncedCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                if (state.totalUnsyncedCount > 0) {
-                                    Box(
-                                        modifier = Modifier
-                                            .offset(x = 2.dp, y = (-2).dp)
-                                            .background(Color.Red, CircleShape)
-                                            .size(8.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Quick Action Scrollable Icons Row
-                state.activeWorkspace?.let { active ->
-                    DashboardQuickActionsRow(
-                        role = active.role,
-                        isHindi = isHindi,
-                        onNavigateToStudents = {
-                            viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("student_directory"))
-                        },
-                        onNavigateToLeave = {
-                            viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("leave"))
-                        },
-                        onNavigateToRemarks = {
-                            viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show"))
-                        },
-                        onNavigateToFees = {
-                            viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("fees"))
-                        },
-                        onNavigateToFinance = {
-                            viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("salary_payouts"))
-                        },
-                        onNavigateToTransport = {
-                            viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("transport"))
-                        },
-                        onNavigateToNotices = {
-                            viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("notices"))
-                        },
-                        onNavigateToGallery = {
-                            viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("gallery"))
-                        }
-                    )
-                }
-
-                // Active Workspace Dashboard
-                Box(modifier = Modifier.weight(1f)) {
-                    if (state.activeWorkspace != null) {
-                         when (state.activeWorkspace.role) {
-                            "Guardian" -> GuardianDashboard(
-                                state = state,
-                                isHindi = isHindi,
-                                isDark = isDark,
-                                viewModel = viewModel,
-                                userId = userId,
-                                onNavigateToLeave = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("leave")) },
-                                onNavigateToFees = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("fees")) },
-                                onNavigateToAttendance = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("attendance")) },
-                                onNavigateToTransport = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("transport")) },
-                                onNavigateToFeed = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("content_feed")) },
-                                onNavigateToRemarks = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show")) },
-                                onNavigateToChildProfiles = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("child_profiles_list")) },
-                                onNavigateToAllLogs = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("all_logs")) }
-                            )
-                            "Student" -> StudentDashboard(
-                                state = state,
-                                isHindi = isHindi,
-                                isDark = isDark,
-                                viewModel = viewModel,
-                                userId = userId,
-                                onNavigateToLeave = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("leave")) },
-                                onNavigateToFeed = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("content_feed")) },
-                                onNavigateToRemarks = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show")) },
-                                onNavigateToSelfProfile = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("student_profile_detail")) },
-                                onNavigateToTransport = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("transport")) },
-                                onNavigateToAllLogs = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("all_logs")) }
-                            )
-                            "Teacher" -> TeacherDashboard(
-                                state = state,
-                                isHindi = isHindi,
-                                isDark = isDark,
-                                viewModel = viewModel,
-                                userId = userId,
-                                onNavigateToLeave = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("leave")) },
-                                onNavigateToTakeAttendance = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("take_attendance")) },
-                                onNavigateToAttendanceHistory = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("teacher_attendance_history")) },
-                                onNavigateToSalary = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("salary_payouts")) },
-                                onNavigateToFeed = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("content_feed")) },
-                                onNavigateToRemarks = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show")) },
-                                onNavigateToAllLogs = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("all_logs")) }
-                            )
-                            "Driver" -> DriverDashboard(
-                                state = state,
-                                isHindi = isHindi,
-                                isDark = isDark,
-                                viewModel = viewModel,
-                                userId = userId,
-                                onNavigateToLeave = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("leave")) },
-                                onNavigateToSalary = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("salary_payouts")) },
-                                onNavigateToFeed = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("content_feed")) },
-                                onNavigateToDriverStudentAttendance = {
-                                    viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("driver_student_attendance"))
-                                    viewModel.onEvent(InstitutionEvent.LoadActiveTrip(userId))
-                                },
-                                onNavigateToRemarks = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show")) },
-                                onNavigateToAllLogs = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("all_logs")) }
-                            )
-                            "Admin", "System Administrator", "School Administrator", "Org Admin", "Principal", "Director", "Owner" -> AdminDashboard(
-                                state = state,
-                                isHindi = isHindi,
-                                isDark = isDark,
-                                onNavigateToStudentDirectory = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("student_directory")) },
-                                onNavigateToFeed = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("content_feed")) },
-                                onNavigateToRemarks = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show")) },
-                                onNavigateToTransport = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("transport")) },
-                                onNavigateToAllLogs = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("all_logs")) }
-                            )
-                            else -> TeacherDashboard(
-                                state = state,
-                                isHindi = isHindi,
-                                isDark = isDark,
-                                viewModel = viewModel,
-                                userId = userId,
-                                onNavigateToLeave = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("leave")) },
-                                onNavigateToTakeAttendance = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("take_attendance")) },
-                                onNavigateToAttendanceHistory = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("teacher_attendance_history")) },
-                                onNavigateToSalary = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("salary_payouts")) },
-                                onNavigateToFeed = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("content_feed")) },
-                                onNavigateToRemarks = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show")) },
-                                onNavigateToAllLogs = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("all_logs")) }
-                            )
-                        }
+            AnimatedContent(
+                targetState = if (activeSubScreen == "fab_self_attendance") null else activeSubScreen,
+                transitionSpec = {
+                    if (targetState != null) {
+                        slideInHorizontally(
+                            initialOffsetX = { fullWidth -> fullWidth },
+                            animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+                        ) + fadeIn(animationSpec = tween(350)) togetherWith
+                        slideOutHorizontally(
+                            targetOffsetX = { fullWidth -> -fullWidth / 4 },
+                            animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+                        ) + fadeOut(animationSpec = tween(350))
                     } else {
-                        NotConnectedView(isHindi = isHindi, isDark = isDark, username = "username")
+                        slideInHorizontally(
+                            initialOffsetX = { fullWidth -> -fullWidth / 4 },
+                            animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+                        ) + fadeIn(animationSpec = tween(350)) togetherWith
+                        slideOutHorizontally(
+                            targetOffsetX = { fullWidth -> fullWidth },
+                            animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+                        ) + fadeOut(animationSpec = tween(350))
                     }
-                }
-            } else {
-                Box(modifier = Modifier.weight(1f)) {
-                    when (activeSubScreen) {
+                },
+                label = "InstitutionSubScreenTransition",
+                modifier = Modifier.weight(1f)
+            ) { targetSubScreen ->
+                if (targetSubScreen == null) {
+                    // Active Workspace Dashboard
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        if (state.activeWorkspace != null) {
+                             when (state.activeWorkspace.role) {
+                                "Guardian" -> GuardianDashboard(
+                                    state = state,
+                                    isHindi = isHindi,
+                                    isDark = isDark,
+                                    viewModel = viewModel,
+                                    userId = userId,
+                                    onNavigateToLeave = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("leave")) },
+                                    onNavigateToFees = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("fees")) },
+                                    onNavigateToAttendance = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("attendance")) },
+                                    onNavigateToTransport = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("transport")) },
+                                    onNavigateToFeed = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("content_feed")) },
+                                    onNavigateToRemarks = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show")) },
+                                    onNavigateToChildProfiles = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("child_profiles_list")) },
+                                    onNavigateToAllLogs = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("all_logs")) }
+                                )
+                                "Student" -> StudentDashboard(
+                                    state = state,
+                                    isHindi = isHindi,
+                                    isDark = isDark,
+                                    viewModel = viewModel,
+                                    userId = userId,
+                                    onNavigateToLeave = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("leave")) },
+                                    onNavigateToFeed = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("content_feed")) },
+                                    onNavigateToRemarks = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show")) },
+                                    onNavigateToSelfProfile = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("student_profile_detail")) },
+                                    onNavigateToTransport = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("transport")) },
+                                    onNavigateToAllLogs = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("all_logs")) }
+                                )
+                                "Teacher" -> TeacherDashboard(
+                                    state = state,
+                                    isHindi = isHindi,
+                                    isDark = isDark,
+                                    viewModel = viewModel,
+                                    userId = userId,
+                                    onNavigateToLeave = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("leave")) },
+                                    onNavigateToTakeAttendance = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("take_attendance")) },
+                                    onNavigateToAttendanceHistory = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("teacher_attendance_history")) },
+                                    onNavigateToSalary = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("salary_payouts")) },
+                                    onNavigateToFeed = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("content_feed")) },
+                                    onNavigateToRemarks = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show")) },
+                                    onNavigateToAllLogs = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("all_logs")) }
+                                )
+                                "Driver" -> DriverDashboard(
+                                    state = state,
+                                    isHindi = isHindi,
+                                    isDark = isDark,
+                                    viewModel = viewModel,
+                                    userId = userId,
+                                    onNavigateToLeave = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("leave")) },
+                                    onNavigateToSalary = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("salary_payouts")) },
+                                    onNavigateToFeed = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("content_feed")) },
+                                    onNavigateToDriverStudentAttendance = {
+                                        viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("driver_student_attendance"))
+                                        viewModel.onEvent(InstitutionEvent.LoadActiveTrip(userId))
+                                    },
+                                    onNavigateToRemarks = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show")) },
+                                    onNavigateToAllLogs = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("all_logs")) }
+                                )
+                                "Admin", "System Administrator", "School Administrator", "Org Admin", "Principal", "Director", "Owner" -> AdminDashboard(
+                                    state = state,
+                                    isHindi = isHindi,
+                                    isDark = isDark,
+                                    onNavigateToStudentDirectory = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("student_directory")) },
+                                    onNavigateToFeed = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("content_feed")) },
+                                    onNavigateToRemarks = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show")) },
+                                    onNavigateToTransport = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("transport")) },
+                                    onNavigateToAllLogs = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("all_logs")) }
+                                )
+                                else -> TeacherDashboard(
+                                    state = state,
+                                    isHindi = isHindi,
+                                    isDark = isDark,
+                                    viewModel = viewModel,
+                                    userId = userId,
+                                    onNavigateToLeave = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("leave")) },
+                                    onNavigateToTakeAttendance = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("take_attendance")) },
+                                    onNavigateToAttendanceHistory = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("teacher_attendance_history")) },
+                                    onNavigateToSalary = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("salary_payouts")) },
+                                    onNavigateToFeed = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("content_feed")) },
+                                    onNavigateToRemarks = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("remarks_show")) },
+                                    onNavigateToAllLogs = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("all_logs")) }
+                                )
+                            }
+                        } else {
+                            NotConnectedView(isHindi = isHindi, isDark = isDark, username = "username")
+                        }
+                    }
+                } else {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        when (targetSubScreen) {
                         "leave" -> LeaveSubScreen(
                             state = state,
                             isHindi = isHindi,
@@ -957,7 +823,7 @@ fun WorkspaceContainer(
                             state = state,
                             isHindi = isHindi,
                             isDark = isDark,
-                            onPaymentClick = { selectedPaymentReceipt = it },
+                            viewModel = viewModel,
                             onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
                         )
                         "pending_syncs" -> PendingSyncsSubScreen(
@@ -995,10 +861,17 @@ fun WorkspaceContainer(
                                 viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null))
                             }
                         )
+                        "fab_add_additional_fee" -> AddAdditionalFeeFabSubScreen(
+                            viewModel = viewModel,
+                            state = state,
+                            isHindi = isHindi,
+                            onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
+                        )
                         "fab_fees" -> CollectFeeFabSubScreen(
                             state = state,
                             isHindi = isHindi,
                             isDark = isDark,
+                            viewModel = viewModel,
                             onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
                         )
                         "fab_add_finance" -> AddFinanceFabSubScreen(
@@ -1045,6 +918,13 @@ fun WorkspaceContainer(
                                 selectedStudentId = studentId
                                 viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen("student_details"))
                             },
+                            onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
+                        )
+                        "staff_directory" -> com.vidyasetuai.feature_institution.presentation.screen.subscreens.StaffDirectorySubScreen(
+                            state = state,
+                            isHindi = isHindi,
+                            isDark = isDark,
+                            viewModel = viewModel,
                             onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
                         )
                         "student_details" -> StudentDetailsSubScreen(
@@ -1143,6 +1023,15 @@ fun WorkspaceContainer(
             }
         }
     }
+
+    if (activeSubScreen == "fab_self_attendance") {
+        SelfAttendanceBottomSheet(
+            audioCode = state.staffAudioCode,
+            onDismissRequest = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) },
+            isDark = isDark
+        )
+    }
+}
 
     if (selectedPaymentReceipt != null) {
         SalaryReceiptDialog(

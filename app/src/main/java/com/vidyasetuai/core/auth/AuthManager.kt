@@ -75,62 +75,14 @@ object AuthManager {
 
         // 3. Sync FCM token in the background
         syncFcmTokenIfNeeded(sessionManager)
-
-        // 4. Start proactive token refresh loop
-        startProactiveTokenRefresh(sessionManager)
     }
 
-    private var isProactiveRefreshRunning = false
-
     /**
-     * Starts a background coroutine to proactively refresh the session token
-     * every 45 minutes (15 minutes before the 1-hour JWT expiration).
-     * Thread-safe with Mutex to prevent clashes with foreground checks.
+     * Managed natively by supabase-kt Auth plugin (alwaysAutoRefresh = true).
+     * Retained as a thread-safe helper for manual sync if explicitly required.
      */
     fun startProactiveTokenRefresh(sessionManager: SessionManager) {
-        if (isProactiveRefreshRunning) return
-        isProactiveRefreshRunning = true
-
-        CoroutineScope(Dispatchers.IO).launch {
-            Log.d(tag, "Proactive token refresh loop started")
-            while (sessionManager.hasActiveSession()) {
-                kotlinx.coroutines.delay(45 * 60 * 1000L) // Wait 45 minutes
-                if (!sessionManager.hasActiveSession()) break
-
-                var refreshedSuccessfully = false
-                var attempts = 0
-                val maxAttempts = 5
-
-                while (!refreshedSuccessfully && attempts < maxAttempts && sessionManager.hasActiveSession()) {
-                    attempts++
-                    try {
-                        Log.d(tag, "Attempting proactive token refresh (Attempt $attempts)...")
-                        tokenRefreshMutex.withLock {
-                            SupabaseClient.client.auth.refreshCurrentSession()
-                            val currentSession = SupabaseClient.client.auth.currentSessionOrNull()
-                            val newAccess = currentSession?.accessToken
-                            val newRefresh = currentSession?.refreshToken
-                            if (!newAccess.isNullOrEmpty()) {
-                                sessionManager.updateTokens(newAccess, newRefresh ?: "")
-                                refreshedSuccessfully = true
-                                Log.d(tag, "Proactive token refresh succeeded!")
-                            } else {
-                                Log.w(tag, "Proactive token refresh returned empty token")
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.e(tag, "Proactive token refresh failed (Attempt $attempts): ${e.message}")
-                    }
-
-                    if (!refreshedSuccessfully) {
-                        // Exponential Backoff Retry: Wait 2 minutes before retrying
-                        kotlinx.coroutines.delay(2 * 60 * 1000L)
-                    }
-                }
-            }
-            isProactiveRefreshRunning = false
-            Log.d(tag, "Proactive token refresh loop stopped")
-        }
+        // Handled automatically and safely by supabase-kt Auth plugin + SafeSupabaseInvoker
     }
 
     /**

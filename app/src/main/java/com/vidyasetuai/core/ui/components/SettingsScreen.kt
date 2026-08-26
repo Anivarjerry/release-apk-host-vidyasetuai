@@ -29,7 +29,6 @@ fun SettingsScreen(
     currentLanguage: String,
     onLanguageChange: (String) -> Unit,
     onBack: () -> Unit,
-    onOpenTournament: (() -> Unit)? = null,
     initialTarget: String? = null,
     modifier: Modifier = Modifier
 ) {
@@ -155,30 +154,6 @@ fun SettingsScreen(
                     title = if (isHindi) "ऐप लॉक और सुरक्षा" else "App Lock & Security",
                     subtitle = if (isHindi) "फिंगरप्रिंट और PIN से ऐप सुरक्षित करें" else "Protect app with Fingerprint & PIN",
                     onClick = { showSecurityScreen = true }
-                )
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(0.5.dp)
-                        .background(MaterialTheme.colorScheme.outlineVariant)
-                        .padding(vertical = 8.dp)
-                )
-
-                // Section: Upcoming Features Header
-                Text(
-                    text = if (isHindi) "आगामी फ़ीचर्स" else "Upcoming Features",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AppColors.EmeraldGreen,
-                    modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
-                )
-
-                SettingsRow(
-                    icon = Lucide.Trophy,
-                    title = if (isHindi) "टूर्नामेंट अरीना (कमिंग सून)" else "Tournament Arena (Coming Soon)",
-                    subtitle = if (isHindi) "क्विज़, चैलेंजेस और लीडरबोर्ड का प्रीव्यू देखें" else "Play, Learn & Level Up challenges preview",
-                    onClick = { onOpenTournament?.invoke() }
                 )
 
                 Box(

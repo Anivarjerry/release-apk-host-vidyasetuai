@@ -157,55 +157,15 @@ class AuthRepositoryImpl(
     override suspend fun restoreSession(): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
             if (sessionManager.hasActiveSession()) {
-                val refreshToken = sessionManager.getRefreshToken()
-                if (!refreshToken.isNullOrEmpty()) {
-                    return@withContext com.vidyasetuai.core.auth.AuthManager.tokenRefreshMutex.withLock {
-                        val currentSessionBefore = SupabaseClient.client.auth.currentSessionOrNull()
-                        if (currentSessionBefore != null && !currentSessionBefore.accessToken.isNullOrEmpty()) {
-                            try {
-                                SupabaseClient.client.auth.refreshCurrentSession()
-                                val refreshedSession = SupabaseClient.client.auth.currentSessionOrNull()
-                                if (refreshedSession != null && !refreshedSession.accessToken.isNullOrEmpty()) {
-                                    sessionManager.updateTokens(
-                                        accessToken = refreshedSession.accessToken,
-                                        refreshToken = refreshedSession.refreshToken ?: ""
-                                    )
-                                }
-                            } catch (_: Exception) {}
-                            return@withLock Result.success(true)
-                        }
+                val currentSession = SupabaseClient.client.auth.currentSessionOrNull()
+                if (currentSession != null && !currentSession.accessToken.isNullOrEmpty()) {
+                    return@withContext Result.success(true)
+                }
 
-                        // Attempt to restore session using refresh token
-                        val session = UserSession(
-                            accessToken = sessionManager.getAccessToken() ?: "",
-                            refreshToken = refreshToken,
-                            expiresIn = 3600L,
-                            tokenType = "Bearer",
-                            user = null
-                        )
-                        try {
-                            SupabaseClient.client.auth.importSession(session)
-                            SupabaseClient.client.auth.refreshCurrentSession()
-                        } catch (e: Exception) {
-                            android.util.Log.e("VidyaSetu_Auth", "Failed to refresh session on restoreSession: ${e.message}")
-                        }
-                        
-                        val currentSession = SupabaseClient.client.auth.currentSessionOrNull()
-                        if (currentSession != null && !currentSession.accessToken.isNullOrEmpty()) {
-                            sessionManager.updateTokens(
-                                accessToken = currentSession.accessToken,
-                                refreshToken = currentSession.refreshToken ?: ""
-                            )
-                            Result.success(true)
-                        } else {
-                            // Offline/Transient Glitch Resiliency: Keep session active if local token exists
-                            if (!sessionManager.getAccessToken().isNullOrEmpty()) {
-                                Result.success(true)
-                            } else {
-                                Result.success(false)
-                            }
-                        }
-                    }
+                // Native EncryptedSupabaseSessionManager auto-loads session directly from EncryptedSharedPreferences on client creation
+                val loadedSession = SupabaseClient.client.auth.sessionManager.loadSession()
+                if (loadedSession != null && loadedSession.accessToken.isNotEmpty()) {
+                    return@withContext Result.success(true)
                 }
             }
             Result.success(false)

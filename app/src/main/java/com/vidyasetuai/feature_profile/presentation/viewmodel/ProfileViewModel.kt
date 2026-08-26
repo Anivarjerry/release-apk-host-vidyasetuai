@@ -1,183 +1,183 @@
 package com.vidyasetuai.feature_profile.presentation.viewmodel
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.vidyasetuai.feature_profile.domain.model.UserProfile
-import com.vidyasetuai.feature_profile.domain.usecase.ApplyForVerificationUseCase
-import com.vidyasetuai.feature_profile.domain.usecase.CheckUsernameUniqueUseCase
-import com.vidyasetuai.feature_profile.domain.usecase.GetUserProfileUseCase
-import com.vidyasetuai.feature_profile.domain.usecase.UpdateUserProfileUseCase
-import com.vidyasetuai.feature_profile.presentation.event.ProfileEvent
-import com.vidyasetuai.feature_profile.presentation.state.ProfileUiState
+import com.vidyasetuai.feature_profile.ProfileModuleFacade
+import com.vidyasetuai.feature_profile.data.repository.ProfileRepository
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 
+/**
+ * Enterprise ViewModel for Profile Module.
+ * Connects 0ms Room DB reactive flows to Compose UI.
+ */
 class ProfileViewModel(
-    private val getUserProfileUseCase: GetUserProfileUseCase,
-    private val updateUserProfileUseCase: UpdateUserProfileUseCase,
-    private val checkUsernameUniqueUseCase: CheckUsernameUniqueUseCase,
-    private val applyForVerificationUseCase: ApplyForVerificationUseCase
-) : ViewModel() {
+    application: Application
+) : AndroidViewModel(application) {
+
+    private val repository: ProfileRepository = ProfileModuleFacade.getRepository(application)
 
     private val _uiState = MutableStateFlow(ProfileUiState())
     val uiState: StateFlow<ProfileUiState> = _uiState.asStateFlow()
 
-    private var currentUserId: String = ""
+    private var activeTargetUserId: String? = null
+    private var profileFlowJob: Job? = null
+    private var inspirationsJob: Job? = null
 
-    fun loadProfile(userId: String) {
-        if (userId.isEmpty() || userId == currentUserId) return
-        currentUserId = userId
-        
-        _uiState.update { it.copy(isLoading = true) }
-
-        // Profile flow collection
-        viewModelScope.launch {
-            getUserProfileUseCase(userId)
-                .catch { e ->
-                    _uiState.update { it.copy(error = e.localizedMessage) }
-                }
-                .collect { profile ->
-                    _uiState.update { it.copy(profile = profile, isLoading = false) }
-                }
-        }
-
-        // Verification status flow collection
-        viewModelScope.launch {
-            applyForVerificationUseCase.getVerificationFlow(userId)
-                .catch { e ->
-                    _uiState.update { it.copy(error = e.localizedMessage) }
-                }
-                .collect { verification ->
-                    _uiState.update { it.copy(verification = verification) }
-                }
-        }
-
-        // Sync from remote in background
-        sync(userId)
+    init {
+        loadProfile(null)
     }
 
     fun onEvent(event: ProfileEvent) {
         when (event) {
-            is ProfileEvent.LoadProfile -> {
-                loadProfile(event.userId)
-            }
-            is ProfileEvent.CheckUsername -> {
-                checkUsername(event.username, event.currentUserId)
-            }
-            is ProfileEvent.UpdateProfile -> {
-                updateProfile(
-                    firstName = event.firstName,
-                    lastName = event.lastName,
-                    bio = event.bio,
-                    username = event.username,
-                    gender = event.gender,
-                    dateOfBirth = event.dateOfBirth,
-                    profilePictureUrl = event.profilePictureUrl,
-                    coverPhotoUrl = event.coverPhotoUrl,
-                    preferredLanguage = event.preferredLanguage
+            is ProfileEvent.LoadProfile -> loadProfile(event.targetUserId)
+            is ProfileEvent.Refresh -> refresh()
+            is ProfileEvent.SelectTab -> _uiState.update { it.copy(selectedTab = event.index) }
+            is ProfileEvent.ToggleEditSheet -> _uiState.update { it.copy(isEditSheetOpen = event.isOpen) }
+            is ProfileEvent.ToggleImageLightbox -> _uiState.update {
+                it.copy(
+                    isImageLightboxOpen = event.isOpen,
+                    lightboxImageUrl = event.imageUrl
                 )
             }
-            is ProfileEvent.ApplyVerification -> {
-                applyVerification(event.note)
+            is ProfileEvent.UpdateProfileInfo -> updateProfileInfo(event)
+            is ProfileEvent.UploadAvatar -> uploadAvatar(event.imageFile)
+            is ProfileEvent.UploadCover -> uploadCover(event.imageFile)
+            is ProfileEvent.ClearMessages -> _uiState.update { it.copy(errorMessage = null, successMessage = null) }
+        }
+    }
+
+    private fun loadProfile(targetUserId: String?) {
+        activeTargetUserId = targetUserId
+        profileFlowJob?.cancel()
+        inspirationsJob?.cancel()
+
+        // 1. 0ms Reactive Read from Room DB Flow
+        profileFlowJob = viewModelScope.launch {
+            val flow = if (targetUserId == null) {
+                repository.getMyProfileFlow()
+            } else {
+                repository.getProfileByIdFlow(targetUserId)
             }
-            is ProfileEvent.DismissSuccess -> {
-                _uiState.update { it.copy(updateSuccess = false, applySuccess = false) }
+
+            flow.collect { profile ->
+                _uiState.update {
+                    it.copy(
+                        profile = profile,
+                        isMe = (targetUserId == null || profile?.isMe == true)
+                    )
+                }
+
+                val resolvedUserId = profile?.userId ?: targetUserId ?: repository.getCurrentUserId()
+                if (resolvedUserId != null && (inspirationsJob == null || !inspirationsJob!!.isActive)) {
+                    startInspirationsObserver(resolvedUserId)
+                }
             }
-            is ProfileEvent.ResetUsernameCheck -> {
-                _uiState.update { it.copy(usernameUnique = null) }
+        }
+
+        val initialUserId = targetUserId ?: repository.getCurrentUserId()
+        if (initialUserId != null) {
+            startInspirationsObserver(initialUserId)
+        }
+
+        // 3. Trigger background sync without blocking UI
+        refresh()
+    }
+
+    private fun startInspirationsObserver(userId: String) {
+        inspirationsJob?.cancel()
+        inspirationsJob = viewModelScope.launch {
+            launch {
+                repository.getInspirationsFlow(userId, "FOLLOWING").collect { following ->
+                    _uiState.update { it.copy(followingList = following) }
+                }
             }
-            is ProfileEvent.SetUserUploadedLoading -> {
-                _uiState.update { it.copy(isUserUploadedLoading = event.isLoading) }
+            launch {
+                repository.getInspirationsFlow(userId, "FOLLOWER").collect { followers ->
+                    _uiState.update { it.copy(followersList = followers) }
+                }
             }
-            is ProfileEvent.UpdateUserCaseStudies -> {
-                _uiState.update { it.copy(userCaseStudies = event.list, isUserUploadedLoading = false) }
-            }
-            is ProfileEvent.UpdateUserExperiences -> {
-                _uiState.update { it.copy(userExperiences = event.list, isUserUploadedLoading = false) }
+            launch {
+                repository.getVerificationFlow(userId).collect { verification ->
+                    _uiState.update { it.copy(verification = verification) }
+                }
             }
         }
     }
 
-    private fun checkUsername(username: String, userId: String) {
-        if (username.isBlank()) {
-            _uiState.update { it.copy(usernameUnique = null) }
-            return
-        }
-        
-        _uiState.update { it.copy(usernameChecking = true) }
+    private fun refresh() {
         viewModelScope.launch {
-            checkUsernameUniqueUseCase(username, userId)
-                .onSuccess { isUnique ->
-                    _uiState.update { it.copy(usernameUnique = isUnique, usernameChecking = false) }
-                }
-                .onFailure { e ->
-                    _uiState.update { it.copy(usernameUnique = null, usernameChecking = false, error = e.localizedMessage) }
-                }
+            _uiState.update { it.copy(isSyncing = true) }
+            val result = repository.syncProfileData(activeTargetUserId)
+            _uiState.update {
+                it.copy(
+                    isSyncing = false,
+                    errorMessage = if (result.isFailure) "Unable to sync profile." else null
+                )
+            }
         }
     }
 
-    private fun updateProfile(
-        firstName: String,
-        lastName: String,
-        bio: String,
-        username: String,
-        gender: String?,
-        dateOfBirth: String?,
-        profilePictureUrl: String?,
-        coverPhotoUrl: String?,
-        preferredLanguage: String?
-    ) {
-        val currentProfile = _uiState.value.profile ?: return
-        val updatedProfile = currentProfile.copy(
-            firstName = firstName,
-            lastName = lastName,
-            fullName = "${firstName.trim()} ${lastName.trim()}".trim(),
-            bio = bio,
-            username = username.trim(),
-            gender = gender,
-            dateOfBirth = dateOfBirth,
-            profilePictureUrl = profilePictureUrl,
-            coverPhotoUrl = coverPhotoUrl,
-            preferredLanguage = preferredLanguage
-        )
+    suspend fun checkUsernameAvailability(username: String): Boolean? {
+        val result = repository.checkUsernameAvailability(username)
+        return result.getOrNull()
+    }
 
-        _uiState.update { it.copy(isLoading = true) }
+    private fun updateProfileInfo(event: ProfileEvent.UpdateProfileInfo) {
         viewModelScope.launch {
-            updateUserProfileUseCase(updatedProfile)
-                .onSuccess {
-                    _uiState.update { it.copy(isLoading = false, updateSuccess = true) }
-                }
-                .onFailure { e ->
-                    _uiState.update { it.copy(isLoading = false, error = e.localizedMessage) }
-                }
+            _uiState.update { it.copy(isLoading = true) }
+            val result = repository.updateProfile(
+                username = event.username,
+                firstName = event.firstName,
+                lastName = event.lastName,
+                bio = event.bio,
+                gender = event.gender,
+                dateOfBirth = event.dateOfBirth,
+                preferredLanguage = event.preferredLanguage,
+                isPrivate = event.isPrivate
+            )
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    isEditSheetOpen = false,
+                    successMessage = if (result.isSuccess) "Profile updated successfully" else null,
+                    errorMessage = if (result.isFailure) "Failed to update profile. Please try again." else null
+                )
+            }
         }
     }
 
-    private fun applyVerification(note: String) {
-        if (currentUserId.isEmpty()) return
-        
-        _uiState.update { it.copy(isLoading = true) }
+    private fun uploadAvatar(imageFile: File) {
         viewModelScope.launch {
-            applyForVerificationUseCase(currentUserId, note)
-                .onSuccess {
-                    _uiState.update { it.copy(isLoading = false, applySuccess = true) }
-                }
-                .onFailure { e ->
-                    _uiState.update { it.copy(isLoading = false, error = e.localizedMessage) }
-                }
+            _uiState.update { it.copy(isUploadingAvatar = true) }
+            val result = repository.uploadAvatar(imageFile)
+            _uiState.update {
+                it.copy(
+                    isUploadingAvatar = false,
+                    successMessage = if (result.isSuccess) "Profile picture updated" else null,
+                    errorMessage = if (result.isFailure) "Failed to upload profile picture" else null
+                )
+            }
         }
     }
 
-    private fun sync(userId: String) {
+    private fun uploadCover(imageFile: File) {
         viewModelScope.launch {
-            getUserProfileUseCase.sync(userId)
-        }
-        viewModelScope.launch {
-            applyForVerificationUseCase.sync(userId)
+            _uiState.update { it.copy(isUploadingCover = true) }
+            val result = repository.uploadCoverPhoto(imageFile)
+            _uiState.update {
+                it.copy(
+                    isUploadingCover = false,
+                    successMessage = if (result.isSuccess) "Cover photo updated" else null,
+                    errorMessage = if (result.isFailure) "Failed to upload cover photo" else null
+                )
+            }
         }
     }
 }

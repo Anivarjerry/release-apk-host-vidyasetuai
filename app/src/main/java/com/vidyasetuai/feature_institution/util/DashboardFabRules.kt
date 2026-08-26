@@ -46,7 +46,6 @@ object DashboardFabRules {
                     route = "fab_quicks"
                 )
             )
-            "journey" -> emptyList()
             "institute" -> {
                 val normalizedRole = role.trim().uppercase()
 

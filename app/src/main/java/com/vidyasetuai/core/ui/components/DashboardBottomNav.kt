@@ -34,6 +34,7 @@ import com.composables.icons.lucide.Compass
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.MessageCircle
 import com.composables.icons.lucide.School
+import com.composables.icons.lucide.Store
 import com.composables.icons.lucide.User
 import com.vidyasetuai.R
 import com.vidyasetuai.core.ui.colors.AppColors
@@ -56,9 +57,9 @@ fun DashboardBottomNav(
     if (!isSubScreenActive) {
         val availableTabs = remember(workspacesList.isNotEmpty()) {
             if (workspacesList.isNotEmpty()) {
-                listOf("home", "institute", "journey", "campus", "profile")
+                listOf("home", "institute", "store", "campus", "profile")
             } else {
-                listOf("home", "journey", "campus", "profile")
+                listOf("home", "store", "campus", "profile")
             }
         }
 
@@ -150,9 +151,9 @@ fun DashboardBottomNav(
                                     tint = tintColor,
                                     modifier = Modifier.size(28.dp)
                                 )
-                                "journey" -> Icon(
-                                    imageVector = Lucide.Compass,
-                                    contentDescription = "Journey",
+                                "store" -> Icon(
+                                    imageVector = Lucide.Store,
+                                    contentDescription = "Store",
                                     tint = tintColor,
                                     modifier = Modifier.size(28.dp)
                                 )

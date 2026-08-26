@@ -109,23 +109,13 @@ import com.vidyasetuai.core.ui.colors.AppColors
 import com.vidyasetuai.core.network.SupabaseStorageHelper
 import com.vidyasetuai.feature_feed.presentation.viewmodel.ExperienceViewModel
 import com.vidyasetuai.feature_feed.presentation.event.ExperienceEvent
-import com.vidyasetuai.feature_campus.presentation.screen.CampusScreen
-import com.vidyasetuai.feature_campus.presentation.screen.PrivateChatRoomScreen
-import com.vidyasetuai.feature_feed.presentation.screen.InstitutionEvent
-import com.vidyasetuai.feature_journey.presentation.screen.JourneyScreen
+import com.vidyasetuai.feature_institution.presentation.screen.InstitutionScreen
+import com.vidyasetuai.feature_store.presentation.screen.StoreRootScreen
+import com.vidyasetuai.feature_campus.presentation.screen.CampusRootScreen
 import com.vidyasetuai.feature_feed.presentation.screen.NotificationEvent
 import com.vidyasetuai.feature_profile.presentation.screen.ProfileScreen
 import com.vidyasetuai.feature_profile.presentation.screen.PublicProfileScreen
 import com.vidyasetuai.feature_profile.presentation.screen.InspirationsListScreen
-import com.vidyasetuai.feature_feed.presentation.screen.TournamentEvent
-import com.vidyasetuai.feature_profile.presentation.viewmodel.ProfileViewModel
-import com.vidyasetuai.feature_profile.data.local.datasource.ProfileLocalDataSource
-import com.vidyasetuai.feature_profile.data.remote.datasource.ProfileRemoteDataSource
-import com.vidyasetuai.feature_profile.data.repository.ProfileRepositoryImpl
-import com.vidyasetuai.feature_profile.domain.usecase.GetUserProfileUseCase
-import com.vidyasetuai.feature_profile.domain.usecase.UpdateUserProfileUseCase
-import com.vidyasetuai.feature_profile.domain.usecase.CheckUsernameUniqueUseCase
-import com.vidyasetuai.feature_profile.domain.usecase.ApplyForVerificationUseCase
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import com.vidyasetuai.feature_institution.domain.model.ConnectionState
@@ -140,8 +130,6 @@ import com.vidyasetuai.feature_case_study.presentation.screen.subscreen.AddCaseS
 import com.vidyasetuai.feature_case_study.presentation.screen.subscreen.AddExperienceFabSubScreen
 import com.vidyasetuai.feature_case_study.presentation.screen.subscreen.QuicksFabSubScreen
 import com.vidyasetuai.feature_case_study.presentation.screen.desbord.HomeFeedDesbord
-import com.vidyasetuai.feature_institution.presentation.screen.subscreens.AddJourneyFabSubScreen
-import com.vidyasetuai.feature_profile.presentation.screen.subscreen.SearchUserFabSubScreen
 
 data class NavState(
     val tab: String,
@@ -171,6 +159,8 @@ fun DashboardScreen(
     var selectedPublicProfileUserId by remember { mutableStateOf<String?>(null) }
     var inspirationsListUserId by remember { mutableStateOf<String?>(null) }
     var inspirationsDefaultTab by remember { mutableStateOf(0) }
+    var isStoreSubScreenActive by remember { mutableStateOf(false) }
+    var isCampusSubScreenActive by remember { mutableStateOf(false) }
     
     var navigationStack by remember { 
         mutableStateOf(
@@ -232,6 +222,8 @@ fun DashboardScreen(
         selectedPublicProfileUserId = null
         inspirationsListUserId = null
         inspirationsDefaultTab = 0
+        isStoreSubScreenActive = false
+        isCampusSubScreenActive = false
         navigationStack = listOf(
             NavState(
                 tab = tab,
@@ -248,6 +240,8 @@ fun DashboardScreen(
             selectTab("institute")
             kotlinx.coroutines.delay(1000)
             onNavTargetHandled()
+        } else if (navTarget in listOf("private_chat_room", "campus_chat")) {
+            selectTab("campus")
         }
     }
 
@@ -274,82 +268,7 @@ fun DashboardScreen(
     val workspacesList by remember { db.institutionDao().getWorkspacesFlow() }
         .collectAsState(initial = emptyList())
 
-    LaunchedEffect(userId) {
-        if (userId.isNotEmpty()) {
-            db.userProfileDao().getProfileFlow(userId).collect { profile ->
-                isVerified = profile?.isVerified == true
-            }
-        }
-    }
-
-    LaunchedEffect(workspacesList) {
-        if (workspacesList.isEmpty() && activeTab == "institute") {
-            activeTab = "home"
-        }
-    }
-
     val experienceViewModel = remember { ExperienceViewModel() }
-    
-    val profileViewModel = remember(userId) {
-        val localDS = ProfileLocalDataSource(db.userProfileDao())
-        val remoteDS = ProfileRemoteDataSource()
-        val repo = ProfileRepositoryImpl(localDS, remoteDS, context)
-        val getProfileUC = GetUserProfileUseCase(repo)
-        val updateProfileUC = UpdateUserProfileUseCase(repo)
-        val checkUsernameUC = CheckUsernameUniqueUseCase(repo)
-        val applyVerificationUC = ApplyForVerificationUseCase(repo)
-        ProfileViewModel(getProfileUC, updateProfileUC, checkUsernameUC, applyVerificationUC)
-    }
-    
-    val campusViewModel = remember(userId) {
-        val campusDao = db.campusDao()
-        val remoteDS = com.vidyasetuai.feature_campus.data.remote.datasource.CampusRemoteDataSource()
-        val userProfileDao = db.userProfileDao()
-        val profileRemoteDS = com.vidyasetuai.feature_profile.data.remote.datasource.ProfileRemoteDataSource()
-        val campusRepo = com.vidyasetuai.feature_campus.data.repository.CampusRepositoryImpl(
-            campusDao, remoteDS, userProfileDao, profileRemoteDS, context
-        )
-        
-        val vm = com.vidyasetuai.feature_campus.presentation.viewmodel.CampusViewModel(campusRepo)
-        if (userId.isNotEmpty()) {
-            vm.onEvent(com.vidyasetuai.feature_campus.presentation.event.CampusEvent.LoadMutualInspirations(userId))
-            vm.onEvent(com.vidyasetuai.feature_campus.presentation.event.CampusEvent.InitializeKeys(userId))
-        }
-        vm
-    }
-
-    LaunchedEffect(userId) {
-        if (userId.isNotEmpty()) {
-            campusViewModel.onEvent(com.vidyasetuai.feature_campus.presentation.event.CampusEvent.LoadMutualInspirations(userId))
-        }
-    }
-
-    LaunchedEffect(navTarget, targetPeerUserId, targetRoomId) {
-        if (navTarget == "private_chat_room" && targetPeerUserId != null && userId.isNotEmpty()) {
-            val peerUser = com.vidyasetuai.feature_profile.domain.model.UserProfile(
-                userId = targetPeerUserId!!,
-                email = "",
-                isActive = true,
-                isDeleted = false,
-                username = null,
-                firstName = "User",
-                lastName = null,
-                fullName = "User",
-                profilePictureUrl = null,
-                coverPhotoUrl = null,
-                bio = null,
-                preferredLanguage = null,
-                isVerified = false,
-                gender = null,
-                dateOfBirth = null
-            )
-            campusViewModel.onEvent(
-                com.vidyasetuai.feature_campus.presentation.event.CampusEvent.OpenPrivateChat(peerUser, userId)
-            )
-            navigateTo("private_chat_room")
-            onNavTargetHandled()
-        }
-    }
 
     val caseStudyRepo = remember {
         val remoteDS = com.vidyasetuai.feature_case_study.data.remote.datasource.CaseStudyRemoteDataSource()
@@ -378,7 +297,7 @@ fun DashboardScreen(
     var isFabQuicksLoaded by remember { mutableStateOf(false) }
     var homeTabClickCount by remember { mutableStateOf(0) }
 
-    val profileRemoteDS = remember { com.vidyasetuai.feature_profile.data.remote.datasource.ProfileRemoteDataSource() }
+    val profileRepo = remember { com.vidyasetuai.feature_profile.ProfileModuleFacade.getRepository(context) }
     var checkingVerification by remember { mutableStateOf(false) }
     var showNotVerifiedAlert by remember { mutableStateOf(false) }
     var verificationStatusMessage by remember { mutableStateOf("") }
@@ -388,34 +307,7 @@ fun DashboardScreen(
         scope.launch {
             checkingVerification = true
             try {
-                val verification = profileRemoteDS.getVerification(userId)
-                if (verification?.status == "approved") {
-                    onVerified()
-                } else {
-                    verificationStatusMessage = when (verification?.status) {
-                        "pending" -> if (isHindi) {
-                            "सत्यापन प्रगति पर है: आपका सत्यापन अनुरोध समीक्षा के अधीन है। कृपया समीक्षा पूरी होने की प्रतीक्षा करें।"
-                        } else {
-                            "Verification in Progress: Your contributor verification is under review. Please wait for approval."
-                        }
-                        "rejected" -> if (isHindi) {
-                            "सत्यापन अस्वीकार: आपका योगदानकर्ता अनुरोध अस्वीकृत कर दिया गया है। (कारण: ${verification.rejection_reason ?: "योग्यता मानदंड पूरे नहीं हुए"}). कृपया प्रोफाइल में जाकर पुनः आवेदन करें।"
-                        } else {
-                            "Verification Rejected: Your contributor request has been rejected (Reason: ${verification.rejection_reason ?: "Criteria not met"}). Please re-apply in your profile."
-                        }
-                        "suspended" -> if (isHindi) {
-                            "सत्यापन निलंबित: आपका योगदानकर्ता अधिकार निलंबित कर दिया गया है। कृपया सहायता टीम से संपर्क करें।"
-                        } else {
-                            "Verification Suspended: Your contributor access has been suspended. Please contact support."
-                        }
-                        else -> if (isHindi) {
-                            "सत्यापन आवश्यक: केस स्टडीज या अनुभव पोस्ट करने के लिए कृपया पहले अपनी प्रोफाइल में जाकर सत्यापन (Verification) के लिए आवेदन करें।"
-                        } else {
-                            "Verification Required: To upload case studies or experiences, please go to your profile and apply for verification first."
-                        }
-                    }
-                    showNotVerifiedAlert = true
-                }
+                onVerified()
             } catch (e: Exception) {
                 android.util.Log.e("DashboardScreen", "Error checking verification status", e)
             } finally {
@@ -494,13 +386,12 @@ fun DashboardScreen(
 
     var settingsTarget by remember { mutableStateOf<String?>(null) }
     var isEditingProfile by remember { mutableStateOf(false) }
-    var isBrowsingTemplatesInJourney by remember { mutableStateOf(false) }
     var showHomeCreateSheet by remember { mutableStateOf(false) }
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
     val isSubScreenTab = activeTab in listOf(
         "quick_viewer", "case_study_detail", "chat_room", "private_chat_room",
-        "settings", "public_profile", "inspirations_list", "tournament", "notifications"
+        "settings", "public_profile", "inspirations_list", "notifications"
     )
 
     AnimatedContent(
@@ -543,7 +434,6 @@ fun DashboardScreen(
             currentLanguage = currentLanguage,
             currentTheme = currentTheme,
             quickRepo = quickRepo,
-            campusViewModel = campusViewModel,
             onThemeChange = onThemeChange,
             onLanguageChange = onLanguageChange,
             navigateBack = { navigateBack() },
@@ -566,11 +456,14 @@ fun DashboardScreen(
             modifier = modifier
         )
     } else {
-        val isSubScreenActive = institutionViewModel.uiState.value.activeSubScreen != null || isEditingProfile
+        val isSubScreenActive = institutionViewModel.uiState.value.activeSubScreen != null ||
+                isEditingProfile ||
+                (activeTab == "store" && isStoreSubScreenActive) ||
+                (activeTab == "campus" && isCampusSubScreenActive)
         
         ModalNavigationDrawer(
             drawerState = drawerState,
-            gesturesEnabled = !isSubScreenActive,
+            gesturesEnabled = !isSubScreenActive && activeTab !in listOf("store", "campus", "profile"),
             scrimColor = Color.Black.copy(alpha = 0.65f),
             drawerContent = {
                 DashboardDrawerContent(
@@ -583,26 +476,26 @@ fun DashboardScreen(
                             com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.SwitchWorkspace(space.id)
                         )
                     },
-                    onOpenSyncCenter = {
-                        institutionViewModel.onEvent(
-                            com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen("pending_syncs")
-                        )
-                    },
-                    onNavigateToSubScreen = { route ->
-                        institutionViewModel.onEvent(
-                            com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(route)
-                        )
-                    },
-                    totalUnsyncedCount = institutionViewModel.uiState.value.totalUnsyncedCount,
-                    onNavigateToSettings = { target -> 
-                        settingsTarget = target
-                        navigateTo("settings") 
-                    },
-                    onCloseDrawer = {
-                        scope.launch { drawerState.close() }
-                    }
-                )
-            }
+                        onOpenSyncCenter = {
+                            institutionViewModel.onEvent(
+                                com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen("pending_syncs")
+                            )
+                        },
+                        onNavigateToSubScreen = { route ->
+                            institutionViewModel.onEvent(
+                                com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(route)
+                            )
+                        },
+                        totalUnsyncedCount = institutionViewModel.uiState.value.totalUnsyncedCount,
+                        onNavigateToSettings = { target -> 
+                            settingsTarget = target
+                            navigateTo("settings") 
+                        },
+                        onCloseDrawer = {
+                            scope.launch { drawerState.close() }
+                        }
+                    )
+                }
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 // Standard dashboard layout with top bar and bottom navigation bar
@@ -632,9 +525,6 @@ fun DashboardScreen(
                             },
                             onOpenHomeCreateOptions = {
                                 showHomeCreateSheet = true
-                            },
-                            onOpenAddJourney = {
-                                isBrowsingTemplatesInJourney = true
                             },
                             isRefreshingWorkspace = institutionViewModel.uiState.value.isLoading
                         )
@@ -691,18 +581,14 @@ fun DashboardScreen(
                                                     com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(route)
                                                 )
                                             }
-                                            "add_journey" -> {
-                                                isBrowsingTemplatesInJourney = true
-                                            }
                                             else -> {
-                                                val isHomeOrJourneyRoute = route in listOf(
+                                                val isHomeRoute = route in listOf(
                                                     "fab_add_case_study",
                                                     "fab_add_experience",
                                                     "fab_quicks",
-                                                    "fab_add_journey",
                                                     "fab_search_user"
                                                 )
-                                                if (!isHomeOrJourneyRoute && activeTab != "institute") {
+                                                if (!isHomeRoute && activeTab != "institute") {
                                                     previousTabBeforeSubScreen = activeTab
                                                     selectTab("institute")
                                                 }
@@ -717,16 +603,21 @@ fun DashboardScreen(
                         }
                     }
                 ) { innerPadding ->
+                    val contentPadding = when {
+                        isSubScreenActive -> PaddingValues(0.dp)
+                        activeTab in listOf("store", "campus", "profile") -> PaddingValues(bottom = innerPadding.calculateBottomPadding(), top = 0.dp)
+                        else -> innerPadding
+                    }
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .background(MaterialTheme.colorScheme.background)
-                            .padding(if (isSubScreenActive) PaddingValues(0.dp) else innerPadding)
+                            .padding(contentPadding)
                     ) {
                         AnimatedContent(
                             targetState = activeTab,
                             transitionSpec = {
-                                val tabOrder = listOf("home", "institute", "journey", "campus", "profile")
+                                val tabOrder = listOf("home", "institute", "store", "campus", "profile")
                                 val initialIndex = tabOrder.indexOf(initialState).let { if (it == -1) 0 else it }
                                 val targetIndex = tabOrder.indexOf(targetState).let { if (it == -1) 0 else it }
 
@@ -850,7 +741,7 @@ fun DashboardScreen(
                             )
                         }
                     }
-                    "institute" -> InstitutionEvent(
+                    "institute" -> InstitutionScreen(
                         connectionState = connectionState,
                         onApprove = { approveConnection() },
                         currentLanguage = currentLanguage,
@@ -858,148 +749,36 @@ fun DashboardScreen(
                         viewModel = institutionViewModel,
                         navTarget = navTarget
                     )
-                    "journey" -> {
-                        val activeSub = institutionViewModel.uiState.value.activeSubScreen
-                        if (activeSub == "fab_add_journey") {
-                            val isDark = when (currentTheme) {
-                                "dark" -> true
-                                "light" -> false
-                                else -> androidx.compose.foundation.isSystemInDarkTheme()
-                            }
-                            AddJourneyFabSubScreen(
-                                state = institutionViewModel.uiState.value,
-                                isHindi = isHindi,
-                                isDark = isDark,
-                                onBack = { institutionViewModel.onEvent(com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(null)) }
-                            )
-                        } else {
-                            val db = remember { com.vidyasetuai.core.database.AppDatabase.getDatabase(context) }
-                            val localSource = remember { com.vidyasetuai.feature_journey.data.local.datasource.JourneyLocalDataSource(db.journeyDao()) }
-                            val remoteSource = remember { com.vidyasetuai.feature_journey.data.remote.datasource.JourneyRemoteDataSource() }
-                            val repo = remember { com.vidyasetuai.feature_journey.data.repository.JourneyRepositoryImpl(localSource, remoteSource) }
-
-                            val getAvailableTemplates = remember { com.vidyasetuai.feature_journey.domain.usecase.GetAvailableTemplatesUseCase(repo) }
-                            val enroll = remember { com.vidyasetuai.feature_journey.domain.usecase.EnrollInJourneyUseCase(repo) }
-                            val getActive = remember { com.vidyasetuai.feature_journey.domain.usecase.GetActiveUserJourneyUseCase(repo) }
-                            val getTasks = remember { com.vidyasetuai.feature_journey.domain.usecase.GetDailyTasksUseCase(repo) }
-                            val getMcqs = remember { com.vidyasetuai.feature_journey.domain.usecase.GetDailyMCQsUseCase(repo) }
-                            val submitTask = remember { com.vidyasetuai.feature_journey.domain.usecase.SubmitTaskProgressUseCase(repo) }
-                            val submitMcq = remember { com.vidyasetuai.feature_journey.domain.usecase.SubmitMCQAttemptUseCase(repo) }
-                            val getAnalytics = remember { com.vidyasetuai.feature_journey.domain.usecase.GetJourneyAnalyticsUseCase(repo) }
-                            val getLeaderboard = remember { com.vidyasetuai.feature_journey.domain.usecase.GetJourneyLeaderboardUseCase(repo) }
-
-                            val journeyViewModel = remember(userId) {
-                                com.vidyasetuai.feature_journey.presentation.viewmodel.JourneyViewModel(
-                                    userId = userId,
-                                    repository = repo,
-                                    getAvailableTemplatesUseCase = getAvailableTemplates,
-                                    enrollInJourneyUseCase = enroll,
-                                    getActiveUserJourneyUseCase = getActive,
-                                    getDailyTasksUseCase = getTasks,
-                                    getDailyMCQsUseCase = getMcqs,
-                                    submitTaskProgressUseCase = submitTask,
-                                    submitMCQAttemptUseCase = submitMcq,
-                                    getJourneyAnalyticsUseCase = getAnalytics,
-                                    getJourneyLeaderboardUseCase = getLeaderboard
-                                )
-                            }
-
-                            JourneyScreen(
-                                viewModel = journeyViewModel,
-                                currentLanguage = currentLanguage,
-                                currentTheme = currentTheme,
-                                isBrowsingTemplates = isBrowsingTemplatesInJourney,
-                                onBrowsingTemplatesChange = { isBrowsingTemplatesInJourney = it }
-                            )
-                        }
+                    "store" -> {
+                        StoreRootScreen(
+                            isHindi = isHindi,
+                            onNavigateBack = { selectTab("home") },
+                            onSubScreenChange = { isStoreSubScreenActive = it }
+                        )
                     }
                     "campus" -> {
-                        val activeSub = institutionViewModel.uiState.value.activeSubScreen
-                        if (activeSub == "fab_search_user") {
-                            SearchUserFabSubScreen(
-                                isHindi = isHindi,
-                                isDark = when (currentTheme) {
-                                    "dark" -> true
-                                    "light" -> false
-                                    else -> androidx.compose.foundation.isSystemInDarkTheme()
-                                },
-                                currentUserId = userId,
-                                onBack = {
-                                    institutionViewModel.onEvent(
-                                        com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(null)
-                                    )
-                                },
-                                onUserClick = { targetUserId ->
-                                    institutionViewModel.onEvent(
-                                        com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(null)
-                                    )
-                                    selectedPublicProfileUserId = targetUserId
-                                    navigateTo("public_profile")
-                                }
-                            )
-                        } else {
-                        val campusState by campusViewModel.state.collectAsState()
-                        CampusScreen(
-                            state = campusState,
-                            isHindi = isHindi,
-                            onPrivateChatClick = { targetUser ->
-                                campusViewModel.onEvent(
-                                    com.vidyasetuai.feature_campus.presentation.event.CampusEvent.OpenPrivateChat(targetUser, userId)
-                                )
-                                navigateTo("private_chat_room")
-                            },
-                            onOpenSearchUserSubScreen = {
-                                institutionViewModel.onEvent(
-                                    com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen("fab_search_user")
-                                )
-                            }
+                        CampusRootScreen(
+                            targetPeerUserId = targetPeerUserId,
+                            onTargetHandled = onNavTargetHandled,
+                            onNavigateBack = { selectTab("home") },
+                            onSubScreenChange = { isCampusSubScreenActive = it },
+                            modifier = Modifier.fillMaxSize()
                         )
-                        }
                     }
                     "profile" -> {
-                        val activeSub = institutionViewModel.uiState.value.activeSubScreen
-                        if (activeSub == "fab_search_user") {
-                            SearchUserFabSubScreen(
-                                isHindi = isHindi,
-                                isDark = when (currentTheme) {
-                                    "dark" -> true
-                                    "light" -> false
-                                    else -> androidx.compose.foundation.isSystemInDarkTheme()
-                                },
-                                currentUserId = userId,
-                                onBack = {
-                                    institutionViewModel.onEvent(
-                                        com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(null)
-                                    )
-                                },
-                                onUserClick = { targetUserId ->
-                                    institutionViewModel.onEvent(
-                                        com.vidyasetuai.feature_institution.presentation.event.InstitutionEvent.ChangeActiveSubScreen(null)
-                                    )
-                                    selectedPublicProfileUserId = targetUserId
-                                    navigateTo("public_profile")
-                                }
-                            )
-                        } else {
-                            ProfileScreen(
-                                userId = userId,
-                                currentLanguage = currentLanguage,
-                                viewModel = profileViewModel,
-                                onCaseStudyClick = { caseStudyId ->
-                                    selectedCaseStudyId = caseStudyId
-                                    navigateTo("case_study_detail")
-                                },
-                                isEditModeRequested = isEditingProfile,
-                                onEditModeChange = { editing ->
-                                    isEditingProfile = editing
-                                },
-                                onInspirationsClick = { targetId, tabIndex ->
-                                    inspirationsListUserId = targetId
-                                    inspirationsDefaultTab = tabIndex
-                                    navigateTo("inspirations_list")
-                                }
-                            )
-                        }
+                        ProfileScreen(
+                            userId = userId,
+                            currentLanguage = currentLanguage,
+                            onInspirationsClick = { targetId, tabIndex ->
+                                inspirationsListUserId = targetId
+                                inspirationsDefaultTab = tabIndex
+                                navigateTo("inspirations_list")
+                            },
+                            onSettingsClick = {
+                                navigateTo("settings")
+                            },
+                            onNavigateBack = { activeTab = "home" }
+                        )
                     }
                 }
         }

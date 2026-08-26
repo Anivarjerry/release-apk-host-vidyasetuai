@@ -1,3 +1,0 @@
-package com.vidyasetuai.feature_tournament.data.local.datasource
-
-class TournamentLocalDataSource

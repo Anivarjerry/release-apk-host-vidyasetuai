@@ -1,3 +1,0 @@
-package com.vidyasetuai.feature_tournament.domain.usecase
-
-class CreateTournamentUseCase

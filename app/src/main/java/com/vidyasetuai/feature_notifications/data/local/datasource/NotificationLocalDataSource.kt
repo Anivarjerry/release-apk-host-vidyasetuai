@@ -1,3 +1,0 @@
-package com.vidyasetuai.feature_notifications.data.local.datasource
-
-class NotificationLocalDataSource

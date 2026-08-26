@@ -57,11 +57,14 @@ object LogoutManager {
                 }
 
 
-                // 4. Clear all local Room Database tables
+                // 4. Clear all local Room Database tables (Core App + Store 24 Tables + Campus E2EE Tables)
                 try {
                     val database = AppDatabase.getDatabase(context)
                     database.clearAllTables()
-                    Log.d(tag, "Room Database tables cleared successfully")
+                    com.vidyasetuai.feature_store.StoreModuleFacade.clearLocalData(context)
+                    com.vidyasetuai.feature_campus.CampusModuleFacade.clearLocalData(context)
+                    com.vidyasetuai.feature_profile.ProfileModuleFacade.clearLocalData(context)
+                    Log.d(tag, "AppDatabase, StoreDatabase, CampusDatabase, and ProfileDatabase cleared successfully")
                 } catch (e: Exception) {
                     Log.e(tag, "Failed to clear Room Database tables: ${e.message}")
                 }

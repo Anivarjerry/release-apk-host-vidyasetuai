@@ -1,3 +1,0 @@
-package com.vidyasetuai.feature_journey.domain.usecase
-
-class GenerateJourneyUseCase

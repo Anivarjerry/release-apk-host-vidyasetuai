@@ -35,15 +35,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composables.icons.lucide.ArrowLeft
 import com.composables.icons.lucide.Lucide
-import com.vidyasetuai.feature_campus.presentation.screen.CampusScreen
-import com.vidyasetuai.feature_campus.presentation.screen.PrivateChatRoomScreen
-import com.vidyasetuai.feature_campus.presentation.viewmodel.CampusViewModel
 import com.vidyasetuai.feature_case_study.data.repository.QuickRepository
 import com.vidyasetuai.feature_case_study.domain.model.Quick
 import com.vidyasetuai.feature_case_study.presentation.screen.CaseStudyDetailScreen
 import com.vidyasetuai.feature_case_study.presentation.screen.subscreen.QuickViewerScreen
 import com.vidyasetuai.feature_feed.presentation.screen.NotificationEvent
-import com.vidyasetuai.feature_feed.presentation.screen.TournamentEvent
 import com.vidyasetuai.feature_profile.presentation.screen.InspirationsListScreen
 import com.vidyasetuai.feature_profile.presentation.screen.PublicProfileScreen
 
@@ -62,7 +58,6 @@ fun DashboardSubScreens(
     currentLanguage: String,
     currentTheme: String,
     quickRepo: QuickRepository,
-    campusViewModel: CampusViewModel,
     onThemeChange: (String) -> Unit,
     onLanguageChange: (String) -> Unit,
     navigateBack: () -> Unit,
@@ -88,10 +83,10 @@ fun DashboardSubScreens(
                 animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
             ) + fadeOut(animationSpec = tween(350))
         },
-        label = "SubScreenTransition",
+        label = "SubScreenAnimatedContent",
         modifier = modifier.fillMaxSize()
-    ) { targetTab ->
-        when (targetTab) {
+    ) { currentSubScreen ->
+        when (currentSubScreen) {
             "quick_viewer" -> {
                 QuickViewerScreen(
                     quicks = quickViewerList,
@@ -115,37 +110,14 @@ fun DashboardSubScreens(
                     onBack = { navigateBack() }
                 )
             }
-            "chat_room" -> {
-                PrivateChatRoomScreen(
-                    viewModel = campusViewModel,
-                    userId = userId,
-                    currentLanguage = currentLanguage,
-                    currentTheme = currentTheme,
-                    onBack = {
-                        campusViewModel.onEvent(com.vidyasetuai.feature_campus.presentation.event.CampusEvent.ClosePrivateChat)
-                        navigateBack()
-                    },
-                    onOpenUserProfile = { clickedUserId ->
-                        onSelectPublicProfileUser(clickedUserId)
-                        navigateTo("public_profile")
-                    }
-                )
-            }
-            "private_chat_room" -> {
-                PrivateChatRoomScreen(
-                    viewModel = campusViewModel,
-                    userId = userId,
-                    currentLanguage = currentLanguage,
-                    currentTheme = currentTheme,
-                    onBack = {
-                        campusViewModel.onEvent(com.vidyasetuai.feature_campus.presentation.event.CampusEvent.ClosePrivateChat)
-                        navigateBack()
-                    },
-                    onOpenUserProfile = { targetUserId ->
-                        onSelectPublicProfileUser(targetUserId)
-                        navigateTo("public_profile")
-                    }
-                )
+            "chat_room", "private_chat_room" -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    androidx.activity.compose.BackHandler { navigateBack() }
+                    Text("Loading Campus Chat...")
+                }
             }
             "settings" -> {
                 SettingsScreen(
@@ -154,7 +126,6 @@ fun DashboardSubScreens(
                     currentLanguage = currentLanguage,
                     onLanguageChange = onLanguageChange,
                     onBack = { navigateBack() },
-                    onOpenTournament = { navigateTo("tournament") },
                     initialTarget = initialSettingsTarget
                 )
             }
@@ -191,7 +162,7 @@ fun DashboardSubScreens(
                     }
                 )
             }
-            "tournament", "notifications" -> {
+            "notifications" -> {
                 // Full screen view with simple top bar (Back button + Title) and NO bottom bar
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
@@ -218,11 +189,7 @@ fun DashboardSubScreens(
                                 }
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Text(
-                                    text = if (targetTab == "tournament") {
-                                        if (isHindi) "टूर्नामेंट" else "Tournament"
-                                    } else {
-                                        if (isHindi) "नोटिफिकेशन" else "Notifications"
-                                    },
+                                    text = if (isHindi) "नोटिफिकेशन" else "Notifications",
                                     fontSize = 20.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onBackground
@@ -243,11 +210,7 @@ fun DashboardSubScreens(
                             .background(MaterialTheme.colorScheme.background)
                             .padding(innerPadding)
                     ) {
-                        if (targetTab == "tournament") {
-                            TournamentEvent(currentLanguage = currentLanguage, currentTheme = currentTheme)
-                        } else {
-                            NotificationEvent(currentLanguage = currentLanguage, currentTheme = currentTheme)
-                        }
+                        NotificationEvent(currentLanguage = currentLanguage, currentTheme = currentTheme)
                     }
                 }
             }

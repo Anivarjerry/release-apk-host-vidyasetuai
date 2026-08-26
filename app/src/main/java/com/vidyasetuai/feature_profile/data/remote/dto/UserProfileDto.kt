@@ -2,6 +2,9 @@ package com.vidyasetuai.feature_profile.data.remote.dto
 
 import kotlinx.serialization.Serializable
 
+/**
+ * Clean Remote DTO matching external module queries and Supabase response schemas.
+ */
 @Serializable
 data class UserProfileDto(
     val user_id: String,

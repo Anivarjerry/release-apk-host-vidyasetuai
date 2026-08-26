@@ -5,40 +5,11 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
-import com.vidyasetuai.feature_profile.data.local.dao.UserProfileDao
-import com.vidyasetuai.feature_profile.data.local.entity.ContributorVerificationEntity
-import com.vidyasetuai.feature_profile.data.local.entity.UserProfileEntity
-import com.vidyasetuai.feature_journey.data.local.dao.JourneyDao
-import com.vidyasetuai.feature_journey.data.local.entity.*
-import com.vidyasetuai.feature_campus.data.local.dao.CampusDao
-import com.vidyasetuai.feature_campus.data.local.entity.PrivateRoomEntity
-import com.vidyasetuai.feature_campus.data.local.entity.PrivateMessageEntity
-import com.vidyasetuai.feature_campus.data.local.entity.ModerationSettingsEntity
-import com.vidyasetuai.feature_campus.data.local.entity.ConnectionRequestEntity
 import com.vidyasetuai.feature_institution.data.local.dao.InstitutionDao
 import com.vidyasetuai.feature_institution.data.local.entity.*
 
 @Database(
     entities = [
-        UserProfileEntity::class,
-        ContributorVerificationEntity::class,
-        GlobalJourneyTemplateEntity::class,
-        OrganizationJourneyTemplateEntity::class,
-        OrganizationParentJourneyTemplateEntity::class,
-        GlobalJourneyTaskEntity::class,
-        OrganizationJourneyTaskEntity::class,
-        OrganizationParentJourneyTaskEntity::class,
-        GlobalJourneyMcqEntity::class,
-        OrganizationJourneyMcqEntity::class,
-        OrganizationParentJourneyMcqEntity::class,
-        UserJourneyEntity::class,
-        UserJourneyTaskProgressEntity::class,
-        UserJourneyMcqProgressEntity::class,
-        PrivateRoomEntity::class,
-        PrivateMessageEntity::class,
-        ModerationSettingsEntity::class,
-        ConnectionRequestEntity::class,
-
         WorkspaceEntity::class,
         LocalChildOrgSetupEntity::class,
         LocalParentBusEntity::class,
@@ -67,14 +38,11 @@ import com.vidyasetuai.feature_institution.data.local.entity.*
         LocalGlobalSessionEntity::class,
         LocalStaffAudioBeaconEntity::class
     ],
-    version = 33,
+    version = 39,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
-    abstract fun userProfileDao(): UserProfileDao
-    abstract fun journeyDao(): JourneyDao
-    abstract fun campusDao(): CampusDao
     abstract fun institutionDao(): InstitutionDao
 
     companion object {

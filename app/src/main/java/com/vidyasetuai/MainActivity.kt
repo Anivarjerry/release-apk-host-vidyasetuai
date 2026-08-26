@@ -36,6 +36,8 @@ import com.vidyasetuai.core.ui.theme.VidyaStuTheme
 import com.vidyasetuai.feature_auth.data.repository.AuthRepositoryImpl
 import com.vidyasetuai.feature_auth.presentation.screen.LoginScreen
 import com.vidyasetuai.feature_auth.presentation.screen.SignUpScreen
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -82,6 +84,13 @@ class MainActivity : FragmentActivity() {
             targetPeerUserIdFlow.value = intent.getStringExtra("TARGET_PEER_USER_ID")
         }
         super.onCreate(savedInstanceState)
+
+        // Eagerly pre-warm Store, Campus & Profile Databases on disk
+        lifecycleScope.launch(Dispatchers.IO) {
+            com.vidyasetuai.feature_store.StoreModuleFacade.prewarmDatabase(applicationContext)
+            com.vidyasetuai.feature_campus.CampusModuleFacade.prewarmDatabase(applicationContext)
+            com.vidyasetuai.feature_profile.ProfileModuleFacade.prewarmDatabase(applicationContext)
+        }
         
         // Keep starting splash screen visible until app logic is fully ready
         splashScreen.setKeepOnScreenCondition {
@@ -175,44 +184,39 @@ class MainActivity : FragmentActivity() {
                 
                 var targetScreen by remember { mutableStateOf<String?>(null) }
 
-                // Parallelize checking of session, version, and permissions on startup
+                // 1. Instant 0ms Local Session & Permission Resolution (Zero Splash Freeze)
                 LaunchedEffect(Unit) {
-                    scope.launch {
-                        // 1. Version check with 2.5 second timeout
+                    val hasLocalSession = sessionManager.hasActiveSession()
+                    if (hasLocalSession) {
+                        val permissionsGranted = PermissionManager.checkAllPermissions(context)
+                        targetScreen = if (permissionsGranted) "home" else "permission_gate"
+                        // Trigger background online session verification
+                        scope.launch(Dispatchers.IO) {
+                            AuthManager.checkSessionOnline(context, sessionManager, authRepository)
+                        }
+                    } else {
+                        targetScreen = "login"
+                    }
+                    isAppReady = true
+
+                    // 2. Parallel Background Version & Mandatory Update Gate via Traffic Police
+                    scope.launch(Dispatchers.IO) {
                         val checkResult = try {
-                            withTimeout(2500L) {
-                                checkAppVersionUseCase()
-                            }
+                            checkAppVersionUseCase()
                         } catch (e: Exception) {
                             com.vidyasetuai.core.update.domain.model.UpdateCheckResult(com.vidyasetuai.core.update.domain.model.UpdateType.NONE, null)
                         }
 
-                        // 2. Local session check (instant)
-                        val hasLocalSession = sessionManager.hasActiveSession()
+                        android.util.Log.d("VidyaSetu_Version", "App version check result: type=${checkResult.updateType}, latest=${checkResult.info?.versionName}")
 
-                        if (checkResult.updateType == com.vidyasetuai.core.update.domain.model.UpdateType.FORCE) {
+                        if (checkResult.updateType == com.vidyasetuai.core.update.domain.model.UpdateType.FORCE && checkResult.info != null) {
                             latestVersionInfo = checkResult.info
                             updateType = com.vidyasetuai.core.update.domain.model.UpdateType.FORCE
                             targetScreen = "update_screen"
-                        } else {
-                            if (checkResult.updateType == com.vidyasetuai.core.update.domain.model.UpdateType.OPTIONAL) {
-                                latestVersionInfo = checkResult.info
-                                updateType = com.vidyasetuai.core.update.domain.model.UpdateType.OPTIONAL
-                            }
-                            if (hasLocalSession) {
-                                val permissionsGranted = PermissionManager.checkAllPermissions(context)
-                                if (permissionsGranted) {
-                                    targetScreen = "home"
-                                } else {
-                                    targetScreen = "permission_gate"
-                                }
-                                // Trigger background session validation online
-                                scope.launch {
-                                    AuthManager.checkSessionOnline(context, sessionManager, authRepository)
-                                }
-                            } else {
-                                targetScreen = "login"
-                            }
+                            currentScreen = "update_screen"
+                        } else if (checkResult.updateType == com.vidyasetuai.core.update.domain.model.UpdateType.OPTIONAL && checkResult.info != null) {
+                            latestVersionInfo = checkResult.info
+                            updateType = com.vidyasetuai.core.update.domain.model.UpdateType.OPTIONAL
                         }
                     }
                 }
@@ -298,6 +302,13 @@ class MainActivity : FragmentActivity() {
                                 scope.launch {
                                     AuthManager.syncFcmToken(context, sessionManager)
                                 }
+
+                                // Sync Store, Campus & Profile Workspace data immediately on login success in background
+                                scope.launch(Dispatchers.IO) {
+                                    com.vidyasetuai.feature_store.StoreModuleFacade.triggerBackgroundSync(context)
+                                    com.vidyasetuai.feature_campus.CampusModuleFacade.triggerBackgroundSync(context)
+                                    com.vidyasetuai.feature_profile.ProfileModuleFacade.triggerBackgroundSync(context)
+                                }
                             }
                         )
                         "signup" -> {
@@ -331,6 +342,13 @@ class MainActivity : FragmentActivity() {
                                     if (!permissionsGranted && AuthManager.isSessionValid.value) {
                                         currentScreen = "permission_gate"
                                     }
+                                }
+
+                                // Silent background sync for Store, Campus & Profile Workspace on cold start
+                                scope.launch(Dispatchers.IO) {
+                                    com.vidyasetuai.feature_store.StoreModuleFacade.triggerBackgroundSync(context)
+                                    com.vidyasetuai.feature_campus.CampusModuleFacade.triggerBackgroundSync(context)
+                                    com.vidyasetuai.feature_profile.ProfileModuleFacade.triggerBackgroundSync(context)
                                 }
                                 
                                 scope.launch {

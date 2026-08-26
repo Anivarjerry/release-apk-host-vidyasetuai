@@ -1,4 +1,4 @@
-package com.vidyasetuai.feature_feed.presentation.screen
+package com.vidyasetuai.feature_institution.presentation.screen
 
 import android.util.Log
 import androidx.compose.animation.AnimatedContent
@@ -67,10 +67,8 @@ import com.vidyasetuai.feature_institution.presentation.screen.subscreens.AddRem
 import com.vidyasetuai.feature_institution.presentation.screen.subscreens.PendingSyncsSubScreen
 import com.vidyasetuai.feature_institution.presentation.screen.subscreens.SalaryPayoutSubScreen
 import com.vidyasetuai.feature_institution.presentation.screen.subscreens.TakeAttendanceFabSubScreen
-import com.vidyasetuai.feature_institution.presentation.screen.subscreens.CollectFeeFabSubScreen
-import com.vidyasetuai.feature_institution.presentation.screen.subscreens.AddFinanceFabSubScreen
-import com.vidyasetuai.feature_institution.presentation.screen.subscreens.StartTripFabSubScreen
-import com.vidyasetuai.feature_institution.presentation.screen.subscreens.AddJourneyFabSubScreen
+import com.vidyasetuai.feature_institution.presentation.screen.subscreens.*
+import com.vidyasetuai.feature_feed.presentation.screen.*
 import com.vidyasetuai.feature_institution.presentation.screen.dashboards.*
 import com.vidyasetuai.feature_institution.presentation.component.DashboardFloatingActionButton
 import com.vidyasetuai.feature_institution.util.DashboardFabRules
@@ -98,7 +96,7 @@ import coil.compose.AsyncImage
 
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
-fun InstitutionEvent(
+fun InstitutionScreen(
     connectionState: ConnectionState?,
     onApprove: () -> Unit,
     currentLanguage: String,
@@ -119,52 +117,7 @@ fun InstitutionEvent(
 
     val db = remember { com.vidyasetuai.core.database.AppDatabase.getDatabase(context) }
     val state = viewModel.uiState.value
-
-    val profileState = remember(userId) { db.userProfileDao().getProfileFlow(userId) }
-        .collectAsState(initial = null)
-    var username by remember { mutableStateOf(userId) }
-
-    LaunchedEffect(userId) {
-        if (userId.isEmpty()) return@LaunchedEffect
-        
-        // 1. Check local DB first to prevent redundant network requests
-        val cachedProfile = db.userProfileDao().getProfile(userId)
-        if (cachedProfile != null && !cachedProfile.username.isNullOrEmpty()) {
-            username = cachedProfile.username
-            return@LaunchedEffect
-        }
-        
-        // 2. Fetch from network only if missing locally
-        try {
-            val response = com.vidyasetuai.core.network.SupabaseClient.client.from("user_profiles")
-                .select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("user_id, username")) {
-                    filter { eq("user_id", userId) }
-                }.decodeSingleOrNull<UserProfileDto>()
-            if (response?.username != null) {
-                username = response.username
-                db.userProfileDao().insertProfile(
-                    com.vidyasetuai.feature_profile.data.local.entity.UserProfileEntity(
-                        userId = userId,
-                        username = response.username,
-                        firstName = null,
-                        lastName = null,
-                        fullName = null,
-                        profilePictureUrl = null,
-                        coverPhotoUrl = null,
-                        bio = null,
-                        preferredLanguage = null,
-                        isVerified = false,
-                        gender = null,
-                        dateOfBirth = null
-                    )
-                )
-            }
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.e("VidyaSetu_Auth", "Error fetching profile from Supabase", e)
-        }
-    }
+    var username by remember { mutableStateOf("Member") }
 
     var lastConnectionState by remember { mutableStateOf<ConnectionState?>(null) }
     LaunchedEffect(userId, connectionState, navTarget) {
@@ -885,12 +838,6 @@ fun WorkspaceContainer(
                             isHindi = isHindi,
                             isDark = isDark,
                             viewModel = viewModel,
-                            onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
-                        )
-                        "fab_add_journey" -> AddJourneyFabSubScreen(
-                            state = state,
-                            isHindi = isHindi,
-                            isDark = isDark,
                             onBack = { viewModel.onEvent(InstitutionEvent.ChangeActiveSubScreen(null)) }
                         )
                         "content_feed" -> ContentFeedScreen(

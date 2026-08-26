@@ -35,40 +35,6 @@ object AppNotificationManager {
                 }
 
                 if (roomId.isNotEmpty()) {
-                    // Update local Room DB so CampusScreen sorts unread chat to top with green badge
-                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                        runCatching {
-                            val db = com.vidyasetuai.core.database.AppDatabase.getDatabase(context)
-                            val campusDao = db.campusDao()
-                            val nowTime = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.getDefault()).apply {
-                                timeZone = java.util.TimeZone.getTimeZone("UTC")
-                            }.format(java.util.Date())
-
-                            val existingRoom = campusDao.getPrivateRoomById(roomId)
-                            if (existingRoom == null && senderId.isNotEmpty()) {
-                                val sessionManager = com.vidyasetuai.core.auth.SessionManager(context)
-                                val currentUserId = sessionManager.getUserId() ?: ""
-                                val userListSorted = listOf(currentUserId, senderId).sorted()
-                                val newRoom = com.vidyasetuai.feature_campus.data.local.entity.PrivateRoomEntity(
-                                    id = roomId,
-                                    user1Id = userListSorted[0],
-                                    user2Id = userListSorted[1],
-                                    createdAt = nowTime,
-                                    lastMessageText = displaySnippet,
-                                    lastMessageTime = nowTime,
-                                    unreadCount = if (ChatNotificationHandler.activeChatRoomId != roomId) 1 else 0,
-                                    updatedAt = nowTime
-                                )
-                                campusDao.insertPrivateRoom(newRoom)
-                            } else {
-                                campusDao.updateRoomLastMessage(roomId, displaySnippet, nowTime)
-                                if (ChatNotificationHandler.activeChatRoomId != roomId) {
-                                    campusDao.incrementRoomUnreadCount(roomId)
-                                }
-                            }
-                        }
-                    }
-
                     ChatNotificationHandler.showChatMessageNotification(
                         context = context,
                         senderName = senderName,

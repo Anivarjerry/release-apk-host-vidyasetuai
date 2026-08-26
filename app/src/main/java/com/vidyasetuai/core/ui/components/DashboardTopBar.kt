@@ -27,6 +27,7 @@ import com.composables.icons.lucide.Menu
 import com.composables.icons.lucide.Pencil
 import com.composables.icons.lucide.Plus
 import com.composables.icons.lucide.RefreshCw
+import com.composables.icons.lucide.Search
 import com.composables.icons.lucide.UserPlus
 import com.vidyasetuai.core.ui.colors.AppColors
 
@@ -41,11 +42,10 @@ fun DashboardTopBar(
     onOpenSearchUser: (() -> Unit)? = null,
     onEditProfileClick: (() -> Unit)? = null,
     onOpenHomeCreateOptions: (() -> Unit)? = null,
-    onOpenAddJourney: (() -> Unit)? = null,
     isRefreshingWorkspace: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    if (!isSubScreenActive) {
+    if (!isSubScreenActive && activeTab !in listOf("store", "campus", "profile")) {
         val haptic = LocalHapticFeedback.current
         Column(
             modifier = modifier
@@ -79,7 +79,7 @@ fun DashboardTopBar(
                 val centerTitle = when (activeTab) {
                     "home" -> "VidyaSetu AI"
                     "institute" -> if (isHindi) "संस्थान" else "Institute"
-                    "journey" -> if (isHindi) "जर्नी" else "Journey"
+                    "store" -> if (isHindi) "स्टोर" else "Store"
                     "campus" -> if (isHindi) "कैंपस" else "Campus"
                     else -> if (isHindi) "प्रोफ़ाइल" else "Profile"
                 }
@@ -141,20 +141,6 @@ fun DashboardTopBar(
                                 contentDescription = "Edit Profile",
                                 tint = AppColors.EmeraldGreen,
                                 modifier = Modifier.size(22.dp)
-                            )
-                        }
-                    }
-
-                    if (activeTab == "journey") {
-                        IconButton(
-                            onClick = { onOpenAddJourney?.invoke() },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = Lucide.Plus,
-                                contentDescription = "Add Journey",
-                                tint = AppColors.EmeraldGreen,
-                                modifier = Modifier.size(26.dp)
                             )
                         }
                     }

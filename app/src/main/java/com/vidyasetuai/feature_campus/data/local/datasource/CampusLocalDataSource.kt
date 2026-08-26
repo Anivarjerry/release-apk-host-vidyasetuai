@@ -1,3 +1,0 @@
-package com.vidyasetuai.feature_campus.data.local.datasource
-
-class CampusLocalDataSource

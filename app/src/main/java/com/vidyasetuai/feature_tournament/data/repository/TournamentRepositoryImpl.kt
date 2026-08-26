@@ -1,3 +1,0 @@
-package com.vidyasetuai.feature_tournament.data.repository
-
-class TournamentRepositoryImpl

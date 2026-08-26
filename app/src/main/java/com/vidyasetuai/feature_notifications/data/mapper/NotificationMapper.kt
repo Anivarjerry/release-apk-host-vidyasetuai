@@ -1,3 +1,0 @@
-package com.vidyasetuai.feature_notifications.data.mapper
-
-class NotificationMapper

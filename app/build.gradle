@@ -137,4 +137,7 @@ dependencies {
     // TensorFlow Lite for FaceNet model embeddings
     implementation 'org.tensorflow:tensorflow-lite:2.14.0'
     implementation 'org.tensorflow:tensorflow-lite-support:0.4.4'
+
+    // ZXing Core for High-Res Scannable QR Code Generation
+    implementation 'com.google.zxing:core:3.5.3'
 }
